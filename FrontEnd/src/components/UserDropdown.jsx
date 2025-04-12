@@ -24,9 +24,8 @@ const UserDropdown = ({ isOpen, onClose }) => {
                 />
             )}
             <div
-                className={`fixed top-0 right-0 h-full w-72 bg-white shadow-xl transform transition-transform duration-500 ease-out border-l border-orange-50 z-50 ${
-                    isOpen ? 'translate-x-0' : 'translate-x-full'
-                }`}
+                className={`fixed top-0 right-0 h-full w-72 bg-white shadow-xl transform transition-transform duration-500 ease-out border-l border-orange-50 z-50 ${isOpen ? 'translate-x-0' : 'translate-x-full'
+                    }`}
             >
                 <div className="p-4 bg-gradient-to-b from-orange-50 to-orange-25 border-b border-orange-100 relative">
                     <button
@@ -57,7 +56,7 @@ const UserDropdown = ({ isOpen, onClose }) => {
 
                 <div className="divide-y divide-orange-50 overflow-y-auto h-full">
                     <NavLink
-                        to="/customerPersonalInformation" // Update the link to the new page
+                        to={`/customerPersonalInformation`} 
                         className="flex items-center p-3.5 hover:bg-orange-50 transition-colors duration-200 group"
                         onClick={onClose}
                     >
@@ -134,7 +133,7 @@ const UserDropdown = ({ isOpen, onClose }) => {
                     </NavLink>
 
                     <NavLink
-                        to="/settings"
+                        to="/helpandsupport"
                         className="flex items-center p-3.5 hover:bg-orange-50 transition-colors duration-200 group"
                         onClick={onClose}
                     >

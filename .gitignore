@@ -1,5 +1,14 @@
-# Root .gitignore
+BackEnd/.env
+# Add FrontEnd/.env if you have one too
+# FrontEnd/.env
+
+# Node modules
 node_modules/
-.env
-.env.local
+**/node_modules/ # Covers node_modules in subdirectories
+
+# Other common ignores
+npm-debug.log
+yarn-error.log
 .DS_Store
+build/
+dist/

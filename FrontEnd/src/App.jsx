@@ -15,6 +15,7 @@ import RegisterRetailer from './Pages/RegisterRetailer';
 import RetailerDashBoard from './Pages/RetailerDashboard';
 import RetailerDashboardHeader from './components/RetailerDashboardHeader';
 import CustomerPersonalInformation from './Pages/CustomerPersonalInformation';
+import HelpandSupport from './Pages/HelpandSupport';
 
 const App = () => {
     const [showSplash, setShowSplash] = useState(true);
@@ -45,6 +46,7 @@ const App = () => {
     const isCustomerDashboard = location.pathname === '/customerDashboard';
     const isRetailerDashboard = location.pathname === '/retailerDashboard';
     const isCustomerPersonalInfo = location.pathname === '/customerPersonalInformation';
+    const helpandsupport = location.pathname === '/helpandsupport';
 
     return (
         <div className="app">
@@ -54,7 +56,9 @@ const App = () => {
                 <RetailerDashboardHeader />
             ) : isCustomerPersonalInfo ? (
                 <CustomerDashboardHeader />
-            ) : (
+            ) :  helpandsupport ? (
+                <CustomerDashboardHeader />
+            ) :(
                 <Header />
             )}
 
@@ -69,6 +73,7 @@ const App = () => {
                 <Route path="/RegisterRetailer" element={<RegisterRetailer />} />
                 <Route path="/retailerDashboard" element={<RetailerDashBoard />} />
                 <Route path="/customerPersonalInformation" element={<CustomerPersonalInformation />} />
+                <Route path="/helpandsupport" element={<HelpandSupport />} />
             </Routes>
 
             <Footer />
