@@ -142,3 +142,24 @@ exports.billUpload = async (req, res) => {
         });
     }
 };
+
+
+
+exports.getBills = async (req, res) => {
+    try {
+        console.log("Fetching all bills...");
+        // Fetch all bills, sort by newest first (based on createdAt timestamp)
+        const allBills = await Bill.find({}).sort({ createdAt: -1 });
+
+        console.log(`Found ${allBills.length} bills.`);
+        res.status(200).json(allBills); // Send the array of bills
+
+    } catch (error) {
+        console.error("Error fetching bills:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch bills.",
+            error: error.message
+        });
+    }
+};

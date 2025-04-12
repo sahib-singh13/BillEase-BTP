@@ -1,10 +1,13 @@
+// routes/billPhotos.js
 const express = require("express");
 const router = express.Router();
+// Assuming your controller is named AddBillPhotoInfo.js
+const { billUpload, getBills } = require("../controller/AddBillPhotoInfo"); // Add getBills
 
-// Correct the path if controller is in ../controllers/ not ../controller/
-const { billUpload } = require("../controller/AddBillPhotoInfo");
-
-//api router
+// POST route for uploading
 router.post("/billUpload", billUpload);
-// Add this line at the end:
+
+// GET route for fetching bills
+router.get("/getBills", getBills); // Add this route
+
 module.exports = router;

@@ -1,25 +1,28 @@
+// src/components/AddBillModal.js
 import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios'; // Import axios
+import axios from 'axios'; // Make sure axios is imported
 import { FaPlus, FaTimes, FaMinus } from 'react-icons/fa';
 
+// Define the API URL using the environment variable
 const API_BASE_URL = process.env.REACT_APP_BASE_URL || "http://localhost:4000/billease";
 
-const AddBillModal = ({ onClose, onBillAdded }) => { // Add onBillAdded prop
+// Added onBillAdded prop to the function signature
+const AddBillModal = ({ onClose, onBillAdded }) => {
   const [billName, setBillName] = useState('');
   const [shopName, setShopName] = useState('');
   const [date, setDate] = useState('');
-  // --- Use itemName to match backend schema ---
+  // Use itemName to match backend schema
   const [items, setItems] = useState([{ itemName: '', cost: '' }]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const fileInputRef = useRef(null);
 
-  // --- State for loading and errors ---
+  // State for loading and errors
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null); // Use this for form submission errors
 
+  // Image preview logic
   useEffect(() => {
-    // Preview logic remains the same
     if (!selectedFile) {
       setPreviewUrl(null);
       return;
@@ -30,7 +33,7 @@ const AddBillModal = ({ onClose, onBillAdded }) => { // Add onBillAdded prop
   }, [selectedFile]);
 
   const handleAddItem = () => {
-    setItems([...items, { itemName: '', cost: '' }]); // Use itemName
+    setItems([...items, { itemName: '', cost: '' }]);
   };
 
   const handleRemoveItem = (index) => {
@@ -41,7 +44,6 @@ const AddBillModal = ({ onClose, onBillAdded }) => { // Add onBillAdded prop
 
   const handleItemChange = (index, field, value) => {
     const newItems = [...items];
-    // Ensure field is either 'itemName' or 'cost'
     if (field === 'itemName' || field === 'cost') {
        newItems[index][field] = value;
        setItems(newItems);
@@ -50,10 +52,9 @@ const AddBillModal = ({ onClose, onBillAdded }) => { // Add onBillAdded prop
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-        // Optional: Basic file type validation on frontend
+     if (file) {
         if (!file.type.startsWith('image/')) {
-            setError('Please select an image file.');
+            setError('Please select an image file.'); // Use the main error state
             setSelectedFile(null);
             setPreviewUrl(null);
             if (fileInputRef.current) fileInputRef.current.value = '';
@@ -70,12 +71,11 @@ const AddBillModal = ({ onClose, onBillAdded }) => { // Add onBillAdded prop
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- Frontend Validation Function ---
+  // Frontend Validation Function
   const validateForm = () => {
     if (!billName.trim()) return "Bill Name is required.";
     if (!shopName.trim()) return "Shop Name is required.";
     if (!date) return "Date is required.";
-
     for (const item of items) {
       if (!item.itemName.trim()) return "All item names are required.";
       const costValue = parseFloat(item.cost);
@@ -86,235 +86,224 @@ const AddBillModal = ({ onClose, onBillAdded }) => { // Add onBillAdded prop
     return null; // No errors
   };
 
-
-  const handleSubmit = async (e) => { // Make async
+  // Handle Form Submission (includes API Call)
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null); // Clear previous errors
 
-    // --- Perform Validation ---
     const validationError = validateForm();
     if (validationError) {
       setError(validationError);
-      return; // Stop submission if validation fails
+      return;
     }
 
     setIsSubmitting(true);
 
-    // --- Create FormData ---
-    // Required because we are sending a file
     const formData = new FormData();
     formData.append('billName', billName.trim());
     formData.append('shopName', shopName.trim());
-    formData.append('purchaseDate', date); // Use 'purchaseDate' key for backend
+    formData.append('purchaseDate', date); // Use 'purchaseDate' key
 
-    // Prepare items: ensure cost is a number and key is 'itemName'
     const formattedItems = items.map(item => ({
       itemName: item.itemName.trim(),
-      cost: parseFloat(item.cost) // Ensure cost is stored as number
+      cost: parseFloat(item.cost)
     }));
-    formData.append('items', JSON.stringify(formattedItems)); // Stringify the items array
+    formData.append('items', JSON.stringify(formattedItems));
 
     if (selectedFile) {
-      formData.append('billPhoto', selectedFile); // Key must match backend: 'billPhoto'
+      formData.append('billPhoto', selectedFile); // Key: 'billPhoto'
     }
 
-    // --- API Call ---
     try {
-      console.log("Sending FormData:", formData); // Optional: Check FormData content
-      // Log keys/values for easier debugging if needed
-      // for (let [key, value] of formData.entries()) {
-      //   console.log(`${key}:`, value);
-      // }
+      console.log("Sending bill data..."); // Log before sending
 
       const response = await axios.post(
-        `${API_BASE_URL}/billUpload`, // Correct endpoint based on server.js and routes
-        formData,
-        {
-          // Axios usually sets Content-Type automatically for FormData
-          // headers: { 'Content-Type': 'multipart/form-data' } // Generally not needed
-        }
+        `${API_BASE_URL}/billUpload`, // API endpoint
+        formData
+        // No need to set Content-Type header for FormData, axios does it
       );
 
       console.log('API Response:', response.data);
 
       if (response.data && response.data.success) {
+         // Check if the callback prop exists before calling it
          if (onBillAdded) {
-            onBillAdded(response.data.bill); // Pass new bill data to parent
+            // *** THIS IS WHERE THE PARENT IS NOTIFIED ***
+            onBillAdded(response.data.bill);
          }
-         onClose(); // Close modal on success
+         onClose(); // Close modal on successful submission
       } else {
-         // Handle cases where backend returns success: false
-         setError(response.data.message || 'Failed to add bill. Unknown backend error.');
+         setError(response.data.message || 'Failed to add bill. Backend reported failure.');
       }
 
     } catch (err) {
-      console.error('API Error:', err);
-      // Extract specific error message if possible
-      let errorMessage = 'Failed to add bill. Please try again.';
+      console.error('API Submission Error:', err);
+      let errorMessage = 'Failed to submit bill. Please try again.';
       if (err.response) {
-        // Server responded with a status code outside 2xx range
         errorMessage = err.response.data?.message || `Server error: ${err.response.status}`;
       } else if (err.request) {
-        // Request was made but no response received (network error)
-        errorMessage = 'Network error. Please check your connection.';
+        errorMessage = 'Network error. Please check connection.';
       } else {
-        // Something happened setting up the request
         errorMessage = err.message;
       }
       setError(errorMessage);
     } finally {
-      setIsSubmitting(false); // Ensure loading state is turned off
+      setIsSubmitting(false); // Turn off loading state
     }
   };
 
+  // JSX structure (using Tailwind as assumed from previous context)
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" // Add z-index
-      onClick={onClose}
+      className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50"
+      onClick={onClose} // Close on overlay click
     >
       <div
-        className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" // Add max-height and scroll
-        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-xl" // Add shadow
+        onClick={(e) => e.stopPropagation()} // Prevent closing on modal click
       >
-        <div className="flex justify-between items-center mb-4 sticky top-0 bg-white py-2 z-10"> {/* Make header sticky */}
-          <h2 className="text-xl font-semibold">Add New Bill</h2>
+        {/* Sticky Header */}
+        <div className="flex justify-between items-center mb-4 sticky top-0 bg-white pt-2 pb-3 z-10 border-b border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-800">Add New Bill</h2>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
+            className="text-gray-400 hover:text-gray-600"
+            aria-label="Close modal"
           >
             <FaTimes className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Display Error Message */}
+        {/* Error Display Area */}
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
             <span className="block sm:inline">{error}</span>
           </div>
         )}
 
+        <form onSubmit={handleSubmit} noValidate> {/* Add noValidate to rely on custom validation */}
 
-        <form onSubmit={handleSubmit}>
-           {/* Bill Photo Input */}
+           {/* --- Bill Photo --- */}
            <div className="mb-4">
-            <label className="block text-sm font-medium mb-1"> {/* Reduced bottom margin */}
+            <label className="block text-sm font-medium mb-1 text-gray-700">
               Bill Photo (Optional)
             </label>
             <input
                 type="file"
                 onChange={handleFileChange}
-                className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
-                accept="image/*" // Only accept images
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 cursor-pointer"
+                accept="image/*"
                 ref={fileInputRef}
              />
-
+            {/* Image Preview */}
             {previewUrl && (
-              <div className="mt-3 text-center"> {/* Reduced top margin */}
-                <div className="relative inline-block">
-                  <button
-                    type="button"
-                    onClick={handleRemovePhoto}
-                    className="absolute -top-3 -right-3 bg-white rounded-full p-1 shadow-md hover:text-red-600 z-10"
-                    aria-label="Remove photo"
-                  >
-                    <FaTimes className="h-5 w-5" />
-                  </button>
+              <div className="mt-3 text-center">
+                <div className="relative inline-block group">
                   <img
                     src={previewUrl}
                     alt="Bill preview"
-                    className="w-40 h-40 object-cover rounded-lg border-2 border-orange-100" // Slightly smaller preview
+                    className="w-36 h-36 object-cover rounded-lg border-2 border-gray-200"
                   />
+                   <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    className="absolute -top-2 -right-2 bg-white rounded-full p-1 shadow text-gray-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Remove photo"
+                  >
+                    <FaTimes className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Bill Details Inputs */}
-          <div className="mb-4">
-             <label htmlFor="billName" className="sr-only">Bill Name</label> {/* Added label for accessibility */}
+          {/* --- Text Inputs --- */}
+          <div className="mb-4 space-y-3"> {/* Add space between inputs */}
+             <label htmlFor="billName" className="sr-only">Bill Name</label>
              <input
               id="billName"
               type="text"
               placeholder="Bill Name *"
               value={billName}
               onChange={(e) => setBillName(e.target.value)}
-              className="w-full p-2 border rounded-lg mb-3"
-              required // HTML5 required
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-orange-500 focus:border-orange-500"
+              required
             />
-             <label htmlFor="shopName" className="sr-only">Shop Name</label> {/* Added label */}
+             <label htmlFor="shopName" className="sr-only">Shop Name</label>
              <input
               id="shopName"
               type="text"
               placeholder="Shop Name *"
               value={shopName}
               onChange={(e) => setShopName(e.target.value)}
-              className="w-full p-2 border rounded-lg mb-3"
+               className="w-full p-2 border border-gray-300 rounded-md focus:ring-orange-500 focus:border-orange-500"
               required
             />
-             <label htmlFor="purchaseDate" className="sr-only">Purchase Date</label> {/* Added label */}
+             <label htmlFor="purchaseDate" className="sr-only">Purchase Date</label>
              <input
               id="purchaseDate"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="w-full p-2 border rounded-lg"
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-orange-500 focus:border-orange-500 text-gray-700" // Style date input
               required
             />
           </div>
 
-          {/* Items Section */}
-          <div className="mb-4">
-            <h3 className="font-medium mb-2">Items *</h3>
-            {items.map((item, index) => (
-              <div key={index} className="flex gap-2 mb-2 items-center">
-                 <label htmlFor={`itemName-${index}`} className="sr-only">Item Name {index + 1}</label>
-                 <input
-                  id={`itemName-${index}`}
-                  type="text"
-                  placeholder="Item name"
-                  // Use itemName matching state/backend
-                  value={item.itemName}
-                  onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
-                  className="flex-1 p-2 border rounded-lg"
-                  required
-                />
-                 <label htmlFor={`itemCost-${index}`} className="sr-only">Item Cost {index + 1}</label>
-                 <input
-                  id={`itemCost-${index}`}
-                  type="number"
-                  placeholder="Cost"
-                  value={item.cost}
-                  onChange={(e) => handleItemChange(index, 'cost', e.target.value)}
-                  className="w-24 p-2 border rounded-lg"
-                  min="0" // Prevent negative numbers via HTML5
-                  step="0.01" // Allow decimals
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => handleRemoveItem(index)}
-                  className="text-red-500 hover:text-red-700 p-2 disabled:opacity-50"
-                  disabled={items.length <= 1} // Disable removing the last item
-                  aria-label={`Remove item ${index + 1}`}
-                >
-                  <FaMinus className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
+          {/* --- Items Section --- */}
+          <div className="mb-5">
+            <h3 className="font-medium mb-2 text-gray-700">Items *</h3>
+            <div className="space-y-2"> {/* Add space between item rows */}
+              {items.map((item, index) => (
+                <div key={index} className="flex gap-2 items-center">
+                  <label htmlFor={`itemName-${index}`} className="sr-only">Item Name {index + 1}</label>
+                  <input
+                    id={`itemName-${index}`}
+                    type="text"
+                    placeholder="Item name"
+                    value={item.itemName}
+                    onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
+                    className="flex-grow p-2 border border-gray-300 rounded-md focus:ring-orange-500 focus:border-orange-500"
+                    required
+                  />
+                  <label htmlFor={`itemCost-${index}`} className="sr-only">Item Cost {index + 1}</label>
+                  <input
+                    id={`itemCost-${index}`}
+                    type="number"
+                    placeholder="Cost"
+                    value={item.cost}
+                    onChange={(e) => handleItemChange(index, 'cost', e.target.value)}
+                    className="w-24 p-2 border border-gray-300 rounded-md focus:ring-orange-500 focus:border-orange-500"
+                    min="0"
+                    step="0.01"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveItem(index)}
+                    className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={items.length <= 1}
+                    aria-label={`Remove item ${index + 1}`}
+                  >
+                    <FaMinus className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
             <button
               type="button"
               onClick={handleAddItem}
-              className="text-orange-500 hover:text-orange-600 flex items-center text-sm mt-1" // Added top margin
+              className="text-orange-600 hover:text-orange-700 flex items-center text-sm mt-2 font-medium"
             >
-              <FaPlus className="mr-1" /> Add Item
+              <FaPlus className="mr-1 h-3 w-3" /> Add Item
             </button>
           </div>
 
-           {/* Submit Button */}
+           {/* --- Submit Button --- */}
            <button
             type="submit"
-            className="w-full bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-70"
-            disabled={isSubmitting} // Disable button while submitting
+            className="w-full bg-orange-500 text-white py-2.5 px-4 rounded-md hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 font-semibold transition-colors disabled:opacity-60"
+            disabled={isSubmitting}
            >
             {isSubmitting ? 'Submitting...' : 'Submit Bill'}
           </button>
