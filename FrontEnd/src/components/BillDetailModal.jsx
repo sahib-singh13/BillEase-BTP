@@ -1,0 +1,257 @@
+// src/components/BillDetailModal.jsx
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import toast from 'react-hot-toast';
+import { FaEdit, FaTrash, FaTimes, FaSave, FaUndo, FaPlus, FaMinus, FaImage, FaFilePdf } from 'react-icons/fa'; // Added file icons
+
+// Define the API URL using the environment variable
+const API_BASE_URL = process.env.REACT_APP_BASE_URL || "http://localhost:4000/billease";
+
+const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
+  // --- State Variables (No change) ---
+  const [isEditing, setIsEditing] = useState(false);
+  const [editableBillData, setEditableBillData] = useState({
+    billName: '', shopName: '', purchaseDate: '', billImageUrl: '', items: [], _id: null,
+  });
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+
+  // --- Effects (No change in core logic) ---
+  useEffect(() => { /* ... animation timing ... */
+    if (isOpen) { const timer = setTimeout(() => setShowModal(true), 50); return () => clearTimeout(timer); }
+    else { setShowModal(false); }
+  }, [isOpen]);
+  useEffect(() => { /* ... data loading/reset ... */
+    if (bill && isOpen) {
+      const formattedDate = bill.purchaseDate ? new Date(bill.purchaseDate).toISOString().split('T')[0] : '';
+      setEditableBillData({ ...bill, purchaseDate: formattedDate, items: bill.items ? JSON.parse(JSON.stringify(bill.items)) : [] });
+      if (!isEditing) { setSelectedFile(null); setPreviewUrl(null); setError(null); setIsDirty(false); }
+    }
+  }, [bill, isOpen, isEditing]); // Added isEditing to prevent reset during edit
+  useEffect(() => { /* ... close modal reset edit state ... */ if (!isOpen) { setIsEditing(false); } }, [isOpen]);
+  useEffect(() => { /* ... preview logic ... */
+    if (!selectedFile) { setPreviewUrl(null); return; }
+    const objectUrl = URL.createObjectURL(selectedFile); setPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [selectedFile]);
+
+  // --- Event Handlers (No change in logic) ---
+  const handleChange = (e) => { /* ... no change ... */ const { name, value } = e.target; setEditableBillData(prev => ({ ...prev, [name]: value })); setIsDirty(true); };
+  const handleItemChange = (index, field, value) => { /* ... no change ... */ setEditableBillData(prev => { const newItems = prev.items.map((item, i) => i === index ? { ...item, [field]: value } : item); return { ...prev, items: newItems }; }); setIsDirty(true); };
+  const handleAddItem = () => { /* ... no change ... */ setEditableBillData(prev => ({ ...prev, items: [...prev.items, { itemName: '', cost: '' }] })); setIsDirty(true); };
+  const handleRemoveItem = (index) => { /* ... no change ... */ if (editableBillData.items.length <= 1 && isEditing) return; setEditableBillData(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) })); setIsDirty(true); };
+  const handleFileChange = (e) => { /* ... no change ... */
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') { setError('Please select an image (JPEG, PNG, GIF, WebP) or PDF file.'); setSelectedFile(null); if(e.target) e.target.value = ''; setIsDirty(false); return; }
+      setError(null); setSelectedFile(file); setIsDirty(true);
+    }
+  };
+  const handleDelete = async () => { /* ... no change ... */
+    if (!bill?._id) return; if (window.confirm(`Are you sure you want to delete the bill "${bill.billName || 'this bill'}"? This action cannot be undone.`)) { setIsLoading(true); setError(null); const toastId = toast.loading(`Deleting bill "${bill.billName || ''}"...`); try { await axios.delete(`${API_BASE_URL}/deleteBills/${bill._id}`); toast.success(`Bill "${bill.billName || ''}" deleted successfully!`, { id: toastId }); onDelete(bill._id); handleCloseAnimation(); } catch (err) { console.error("Error deleting bill:", err); const message = err.response?.data?.message || err.message || 'Failed to delete bill.'; setError(message); toast.error(message, { id: toastId }); } finally { setIsLoading(false); } }
+  };
+  const handleEditToggle = () => { /* ... no change ... */
+    setError(null); if (isEditing) { const formattedDate = bill.purchaseDate ? new Date(bill.purchaseDate).toISOString().split('T')[0] : ''; setEditableBillData({ ...bill, purchaseDate: formattedDate, items: bill.items ? JSON.parse(JSON.stringify(bill.items)) : [] }); setSelectedFile(null); setPreviewUrl(null); setIsDirty(false); } setIsEditing(!isEditing);
+  };
+  const validateForm = () => { /* ... no change ... */
+    if (!editableBillData.billName?.trim()) return "Bill Name is required."; if (!editableBillData.shopName?.trim()) return "Shop Name is required."; if (!editableBillData.purchaseDate) return "Purchase Date is required."; if (!editableBillData.items || editableBillData.items.length === 0) return "At least one item is required."; for (const item of editableBillData.items) { if (!item.itemName?.trim()) return "All item names are required."; const costValue = parseFloat(item.cost); if (item.cost === null || item.cost === undefined || item.cost === '' || isNaN(costValue) || costValue < 0) return "All item costs must be valid non-negative numbers."; } return null;
+  };
+  const handleSubmit = async (e) => { /* ... no change ... */
+    e.preventDefault(); if (!isEditing || !bill?._id || !isDirty) return; setError(null); const validationError = validateForm(); if (validationError) { setError(validationError); toast.error(validationError); return; } setIsLoading(true); const toastId = toast.loading('Updating bill...'); const formData = new FormData(); formData.append('billName', editableBillData.billName || ''); formData.append('shopName', editableBillData.shopName || ''); formData.append('purchaseDate', editableBillData.purchaseDate || ''); const formattedItems = editableBillData.items.map(item => ({ itemName: item.itemName.trim(), cost: parseFloat(item.cost) })); formData.append('items', JSON.stringify(formattedItems)); if (selectedFile) { formData.append('billPhoto', selectedFile); } try { const response = await axios.patch(`${API_BASE_URL}/updateBills/${bill._id}`, formData); toast.success('Bill updated successfully!', { id: toastId }); onUpdate(response.data.bill); setIsEditing(false); setIsDirty(false); setSelectedFile(null); setPreviewUrl(null); } catch (err) { console.error("Error updating bill:", err); const message = err.response?.data?.message || err.message || 'Failed to update bill.'; setError(message); toast.error(message, { id: toastId }); } finally { setIsLoading(false); }
+  };
+  const handleModalContentClick = (e) => e.stopPropagation();
+  const handleCloseAnimation = () => { /* ... no change ... */ setShowModal(false); setTimeout(onClose, 300); };
+
+  // --- Render Logic ---
+  if (!isOpen && !showModal) return null;
+
+  const displayImageUrl = previewUrl || editableBillData.billImageUrl;
+  const isPdf = selectedFile?.type === 'application/pdf' || (!selectedFile && editableBillData.billImageUrl?.toLowerCase().endsWith('.pdf'));
+
+  // Define base button classes
+  const baseButtonClass = "px-5 py-2.5 rounded-lg inline-flex items-center justify-center font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all duration-200 ease-in-out disabled:opacity-60 disabled:cursor-not-allowed transform hover:scale-[1.03] hover:shadow-md";
+  // Input field classes
+  const inputClass = "w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:ring-1 focus:ring-orange-500 focus:border-orange-500 transition duration-150 ease-in-out text-sm placeholder-gray-400 hover:bg-gray-50/50 disabled:bg-gray-100";
+  // View mode paragraph classes
+  const viewTextClass = "text-gray-800 bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-2.5 rounded-lg border border-gray-200 min-h-[46px] break-words text-sm shadow-inner"; // Adjusted height slightly
+
+  return (
+    // Modal Backdrop / Overlay
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md transition-opacity duration-300 ${showModal ? 'opacity-100' : 'opacity-0'}`} // Darker backdrop, blurrier
+      onClick={handleCloseAnimation}
+    >
+      {/* Modal Content Box */}
+      <div
+        className={`bg-white rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden border-t-4 border-orange-500 shadow-xl transition-all duration-300 ease-out ${showModal ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-95'}`} // Accent top border, softer shadow, adjusted animation
+        onClick={handleModalContentClick}
+      >
+        {/* Modal Header */}
+        <div className="flex justify-between items-center px-6 py-4 flex-shrink-0 bg-white">
+          <h2 className="text-xl font-bold text-gray-800 tracking-tight"> {/* Bolder Header */}
+            {isEditing ? 'Edit Bill Details' : 'Bill Details'}
+          </h2>
+          <button
+            onClick={handleCloseAnimation}
+            className="text-gray-400 hover:text-red-600 transition-colors duration-150 rounded-full p-1 -mr-2 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+            aria-label="Close modal"
+          >
+            <FaTimes size={22} /> {/* Slightly larger close icon */}
+          </button>
+        </div>
+
+        {/* Modal Body (Scrollable) */}
+        <div className="flex-grow overflow-y-auto px-7 py-6 custom-scrollbar space-y-7 bg-gray-50/40"> {/* Slightly off-white bg */}
+          {/* Error Display Area */}
+          {error && <div className="mb-4 p-3.5 bg-red-100 text-red-800 border border-red-300 rounded-lg text-sm shadow-sm" role="alert">{error}</div>}
+
+          {/* Form Element */}
+          <form onSubmit={handleSubmit} noValidate className="space-y-7">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-7 gap-y-6"> {/* Increased gap */}
+
+              {/* Left Side: Image Area */}
+              <div className="flex flex-col items-center justify-start space-y-5">
+                {isEditing && (
+                  <div className="w-full p-5 border-2 border-dashed border-gray-300 hover:border-orange-500 hover:bg-orange-50/30 transition-all duration-200 rounded-lg text-center group"> {/* Hover effect */}
+                    <label htmlFor="billPhotoEdit" className="cursor-pointer text-orange-600 group-hover:text-orange-700 text-sm font-medium block transition-colors">
+                      <FaImage className="inline-block mr-2 mb-1 text-lg" /> {selectedFile ? selectedFile.name : 'Change image / PDF'}
+                    </label>
+                    <input type="file" id="billPhotoEdit" name="billPhoto" onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" disabled={isLoading}/>
+                    {previewUrl && !isPdf && <img src={previewUrl} alt="New preview" className="mt-4 max-h-32 mx-auto object-contain border border-gray-200 rounded-md shadow-sm"/>}
+                    {previewUrl && isPdf && <div className="mt-4 text-center"><FaFilePdf className="mx-auto text-4xl text-red-500" /><p className="text-xs text-gray-600 mt-1">{selectedFile?.name}</p></div>}
+                    {!selectedFile && editableBillData.billImageUrl && <p className="text-xs text-gray-500 mt-2">(Current file shown below)</p>}
+                  </div>
+                )}
+                {/* Image/PDF Display Area */}
+                <div className="w-full h-64 bg-white flex items-center justify-center overflow-hidden rounded-lg border border-gray-200 shadow-md p-2">
+                    {isPdf && displayImageUrl && ( // Specific display for PDF
+                        <div className='text-center p-4'>
+                            <FaFilePdf className="mx-auto text-6xl text-red-600 mb-3" />
+                            <p className='text-sm text-gray-700 font-medium'>PDF Document</p>
+                            {/* Optionally add a link to view/download */}
+                            <a href={displayImageUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-orange-600 hover:underline mt-1 block">View PDF</a>
+                        </div>
+                    )}
+                    {!isPdf && displayImageUrl && ( // Display for images
+                       <img src={displayImageUrl} alt={`Bill for ${editableBillData.billName || bill.billName}`} className="max-w-full max-h-full object-contain rounded-sm"/>
+                    )}
+                    {!displayImageUrl && ( // Placeholder
+                      <div className="text-center p-4">
+                         <FaImage className="mx-auto text-5xl text-gray-300 mb-2" />
+                         <span className="text-gray-400 italic text-sm">No Image Available</span>
+                      </div>
+                     )}
+                </div>
+              </div>
+
+              {/* Right Side: Textual Details */}
+              <div className="space-y-6">
+                {/* Bill Name */}
+                <div>
+                  <label htmlFor="billNameEdit" className="block text-sm font-medium text-gray-600 mb-1.5">Bill Name *</label>
+                  {isEditing ? (
+                    <input type="text" id="billNameEdit" name="billName" value={editableBillData.billName || ''} onChange={handleChange} className={inputClass} required disabled={isLoading}/>
+                  ) : ( <p className={viewTextClass}>{editableBillData.billName}</p> )}
+                </div>
+                {/* Shop Name */}
+                <div>
+                  <label htmlFor="shopNameEdit" className="block text-sm font-medium text-gray-600 mb-1.5">Shop Name *</label>
+                  {isEditing ? (
+                    <input type="text" id="shopNameEdit" name="shopName" value={editableBillData.shopName || ''} onChange={handleChange} className={inputClass} required disabled={isLoading}/>
+                  ) : ( <p className={viewTextClass}>{editableBillData.shopName}</p> )}
+                </div>
+                {/* Purchase Date */}
+                <div>
+                  <label htmlFor="purchaseDateEdit" className="block text-sm font-medium text-gray-600 mb-1.5">Purchase Date *</label>
+                  {isEditing ? (
+                    <input type="date" id="purchaseDateEdit" name="purchaseDate" value={editableBillData.purchaseDate || ''} onChange={handleChange} className={`${inputClass} text-gray-700`} required disabled={isLoading}/>
+                  ) : ( <p className={viewTextClass}>{editableBillData.purchaseDate ? new Date(editableBillData.purchaseDate + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'N/A'}</p> )}
+                </div>
+              </div>
+            </div> {/* End Grid */}
+
+            {/* Items Section */}
+            <div className="space-y-2.5">
+              <h3 className="text-base font-semibold text-gray-700 mb-1">Items *</h3> {/* Slightly larger heading */}
+              {isEditing ? (
+                <div className="space-y-3.5 border-2 border-gray-200 rounded-xl p-5 bg-white shadow-sm"> {/* Thicker border, more padding */}
+                  {editableBillData.items?.map((item, index) => (
+                    <div key={index} className="flex gap-3 items-center">
+                      <input id={`itemNameEdit-${index}`} type="text" placeholder="Item name" value={item.itemName || ''} onChange={(e) => handleItemChange(index, 'itemName', e.target.value)} className={`${inputClass} flex-grow py-2`} required disabled={isLoading}/> {/* Adjusted padding */}
+                      <input id={`itemCostEdit-${index}`} type="number" placeholder="Cost" value={item.cost ?? ''} onChange={(e) => handleItemChange(index, 'cost', e.target.value)} className={`${inputClass} w-32 py-2`} min="0" step="0.01" required disabled={isLoading}/> {/* Adjusted padding */}
+                      <button type="button" onClick={() => handleRemoveItem(index)} className="text-red-500 hover:text-red-700 p-1.5 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 hover:bg-red-100 rounded-full transition-colors duration-150" disabled={isLoading || editableBillData.items.length <= 1} aria-label={`Remove item ${index + 1}`}>
+                        <FaMinus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={handleAddItem} disabled={isLoading} className="text-orange-600 hover:text-orange-700 flex items-center text-sm font-semibold mt-3 pt-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150">
+                    <FaPlus className="mr-1.5 h-4 w-4" /> Add Item
+                  </button>
+                </div>
+              ) : (
+                <div className={`${viewTextClass} p-5 min-h-[80px]`}> {/* Match padding, min-height */}
+                  {editableBillData.items && editableBillData.items.length > 0 ? (
+                    <ul className="list-disc list-inside space-y-2 pl-1 text-gray-700">
+                      {editableBillData.items.map((item, index) => (
+                        <li key={index}>
+                          {item.itemName || '(No Name)'}: <span className="font-bold text-gray-800">₹{item.cost?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : ( <p className="italic text-gray-500">No items listed.</p> )}
+                </div>
+              )}
+            </div>
+
+            {/* Invisible submit button */}
+            {isEditing && <button type="submit" className="hidden"></button>}
+          </form> {/* End Form */}
+
+        </div> {/* End Modal Body */}
+
+        {/* Modal Footer */}
+        <div className="flex flex-col sm:flex-row justify-between items-center px-6 py-4 border-t border-gray-200 bg-white space-y-3 sm:space-y-0 sm:space-x-3 flex-shrink-0">
+          {!isEditing && (
+            <button onClick={handleDelete} disabled={isLoading} className={`${baseButtonClass} bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white focus:ring-red-500 shadow-md hover:shadow-lg`}> {/* Gradient + Shadow */}
+              <FaTrash className="mr-2 h-4 w-4" /> Delete Bill
+            </button>
+          )}
+          {!isEditing && <div className="flex-grow"></div>}
+
+          <div className="flex space-x-4"> {/* Increased spacing */}
+            {isEditing ? (
+              <>
+                <button type="button" onClick={handleEditToggle} disabled={isLoading} className={`${baseButtonClass} bg-gray-500 hover:bg-gray-600 text-white focus:ring-gray-400 shadow-md hover:shadow-lg`}>
+                   <FaUndo className="mr-2 h-4 w-4" /> Cancel
+                </button>
+                <button type="button" onClick={handleSubmit} disabled={isLoading || !isDirty} className={`${baseButtonClass} ${isDirty && !isLoading ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white focus:ring-green-500 shadow-md hover:shadow-lg cursor-pointer' : 'bg-gray-300 text-gray-500 focus:ring-gray-300 cursor-not-allowed'}`}>
+                  <FaSave className="mr-2 h-4 w-4" /> Submit Changes
+                </button>
+              </>
+            ) : (
+               <button onClick={handleEditToggle} disabled={isLoading} className={`${baseButtonClass} bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white focus:ring-orange-500 shadow-md hover:shadow-lg`}> {/* Gradient + Shadow */}
+                <FaEdit className="mr-2 h-4 w-4" /> Edit Bill
+              </button>
+            )}
+          </div>
+        </div> {/* End Modal Footer */}
+      </div> {/* End Modal Content Box */}
+
+      {/* Custom Scrollbar CSS (already present) */}
+      <style jsx global>{`
+            .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; } /* Added height */
+            .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+            .custom-scrollbar::-webkit-scrollbar-thumb { background: #fdba74; border-radius: 10px; border: 2px solid #f1f1f1; } /* Orange thumb, track border */
+            .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #f97316; } /* Darker orange hover */
+            /* For Firefox */
+            .custom-scrollbar { scrollbar-width: thin; scrollbar-color: #fdba74 #f1f1f1; }
+        `}</style>
+    </div> // End Modal Backdrop
+  );
+};
+
+export default BillDetailModal;
