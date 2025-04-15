@@ -1,3 +1,50 @@
+/* Add this to your src/index.css or equivalent global stylesheet */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Keyframes for floating effect */
+@keyframes float {
+  0% {
+    /* Slightly subtler shadow */
+    box-shadow: 0 4px 12px 0px rgba(0, 0, 0, 0.15);
+    transform: translatey(0px);
+  }
+  50% {
+    box-shadow: 0 20px 15px -10px rgba(0, 0, 0, 0.1); /* Adjusted shadow for lift */
+    transform: translatey(-15px); /* Reduced travel distance */
+  }
+  100% {
+    box-shadow: 0 4px 12px 0px rgba(0, 0, 0, 0.15);
+    transform: translatey(0px);
+  }
+}
+
+@keyframes float-reverse {
+   0% {
+    box-shadow: 0 4px 12px 0px rgba(0, 0, 0, 0.15);
+    transform: translatey(0px);
+  }
+  50% {
+    box-shadow: 0 20px 15px -10px rgba(0, 0, 0, 0.1);
+    transform: translatey(15px); /* Reverse direction */
+  }
+  100% {
+    box-shadow: 0 4px 12px 0px rgba(0, 0, 0, 0.15);
+    transform: translatey(0px);
+  }
+}
+
+/* Apply the animations */
+.animate-float {
+  animation: float 7s ease-in-out infinite; /* Slightly slower */
+}
+.animate-float-reverse {
+  animation: float-reverse 8s ease-in-out infinite; /* Slightly slower and different duration */
+}
+
+/* Optional: Improve body defaults slightly */
+body {
+  @apply bg-gray-50 antialiased; /* Antialiased text looks smoother */
+}
