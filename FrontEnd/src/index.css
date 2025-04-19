@@ -48,3 +48,46 @@
 body {
   @apply bg-gray-50 antialiased; /* Antialiased text looks smoother */
 }
+
+
+
+.loader {
+  width: 80px; /* Adjusted size for typical use */
+  aspect-ratio: 1;
+  display: grid;
+  -webkit-mask: conic-gradient(from 22deg, #0003, #000);
+          mask: conic-gradient(from 22deg, #0003, #000);
+  animation: load 1s steps(8) infinite;
+  /* No background color needed on the loader itself */
+}
+
+.loader,
+.loader:before {
+  /* --_g defines the gradient line pattern */
+  /* Using shades of orange */
+  --_g: linear-gradient(#F97316 0 0) 50%; /* Orange-600 */
+  background:
+    var(--_g) / 34% 8% space no-repeat, /* Horizontal lines */
+    var(--_g) / 8% 34% no-repeat space; /* Vertical lines */
+}
+
+.loader:before {
+  content: "";
+  transform: rotate(45deg); /* Creates the diagonal lines */
+}
+
+@keyframes load {
+  from { transform: rotate(0turn); }
+  to   { transform: rotate(1turn); }
+}
+
+/* Optional: Styling for a container if you want to center it */
+.loader-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: fixed; /* Or absolute within a relative parent */
+    inset: 0; /* Cover the whole area */
+    background-color: rgba(255, 255, 255, 0.8); /* White background with some transparency */
+    z-index: 100; /* Ensure it's on top */
+}

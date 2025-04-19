@@ -1,81 +1,75 @@
+// models/BillPhotoInfo.js
 const mongoose = require('mongoose');
-require('dotenv').config(); 
 const Schema = mongoose.Schema;
-
-// --- User Schema ---
-const userSchema = new Schema({
-    name: {
-        type: String,
-        required: true,
-        trim: true
-    },
-    email: {
-        type: String,
-        required: true,
-        unique: true,
-        trim: true,
-        lowercase: true,
-        match: [/.+@.+\..+/, 'Please fill a valid email address'] // Basic email format validation
-    },
-    password: { 
-        type: String,
-        required: true
-    }
-}, { timestamps: true });
-
-
-const User = mongoose.model('User', userSchema);
-
 
 // --- Item Sub-Schema ---
 const itemSchema = new Schema({
     itemName: {
         type: String,
-        required: true,
+        required: [true, 'Item name is required'],
         trim: true
     },
     cost: {
         type: Number,
-        required: true,
+        required: [true, 'Item cost is required'],
         min: [0, 'Cost cannot be negative']
     }
-}, { _id: false });
-
+}, { _id: false }); // No separate _id for subdocuments unless needed
 
 // --- Main Bill Schema ---
 const billSchema = new Schema({
-    
+    // --- User Reference ---
+    user: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        ref: 'User' // Reference to the User model
+    },
     billName: {
         type: String,
-        required: true,
+        required: [true, 'Bill name is required'],
         trim: true
     },
     shopName: {
         type: String,
-        required: true,
+        required: [true, 'Shop name is required'],
         trim: true
     },
+    // --- NEW FIELDS ---
+    shopPhoneNumber: {
+        type: String,
+        trim: true,
+        // Optional: Add more specific validation if needed
+        // match: [/^\+?[0-9\s\-()]{7,20}$/, 'Please provide a valid phone number'],
+        default: '' // Default to empty string if not provided
+    },
+    shopAddress: {
+        type: String,
+        trim: true,
+        default: '' // Default to empty string if not provided
+    },
+    // --- END NEW FIELDS ---
     purchaseDate: {
         type: Date,
-        required: true,
+        required: [true, 'Purchase date is required'],
     },
-    billImageUrl: { 
+    billImageUrl: {
         type: String,
         trim: true,
     },
-    cloudinaryId: { 
+    cloudinaryId: {
         type: String,
+        trim: true,
     },
-    items: [itemSchema]
+    items: {
+        type: [itemSchema], // Array of items
+        validate: [v => Array.isArray(v) && v.length > 0, 'At least one item is required'] // Ensure items array is not empty
+    }
 }, {
-    timestamps: true // Adds createdAt and updatedAt
+    timestamps: true // Adds createdAt and updatedAt automatically
 });
-
 
 // --- Create Bill Model ---
 const Bill = mongoose.model('Bill', billSchema);
 
-
-// --- Export Models ---
-// Export both models so they can be used elsewhere
-module.exports = { Bill, User };
+// --- Export ONLY the Bill Model ---
+module.exports = Bill;

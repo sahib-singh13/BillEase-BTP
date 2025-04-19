@@ -1,165 +1,162 @@
+// controller/AddBillPhotoInfo.js
 
-const { Bill } = require("../models/BillPhotoInfo"); 
+const Bill = require("../models/BillPhotoInfo"); // Import the Bill model
 const cloudinary = require("cloudinary").v2;
 
-// --- Helper Functions (ensure these are defined or imported) ---
+// --- Helper Functions ---
 
 // Checks if the file extension is in the list of supported types
 function isFileTypeSupported(type, supportedTypes) {
-    return supportedTypes.includes(type);
+    if (!type) return false;
+    return supportedTypes.includes(type.toLowerCase());
 }
 
 // Uploads file to Cloudinary using temp file path
 async function uploadFileToCloudinary(file, folder, resourceType = "auto", quality) {
-    const options = {
-        folder,
-        resource_type: resourceType,
-    };
-
-    if (quality) {
-        options.quality = quality; 
-    }
-
-    console.log("Temporary file path ->", file.tempFilePath);
-    if (!file.tempFilePath) {
-        throw new Error("Temporary file path is missing. Check file upload middleware configuration.");
-    }
+    const options = { folder, resource_type: resourceType };
+    if (quality) { options.quality = quality; }
+    if (!file.tempFilePath) { throw new Error("Temporary file path is missing."); }
+    console.log("Uploading to Cloudinary from temp path:", file.tempFilePath);
     return await cloudinary.uploader.upload(file.tempFilePath, options);
 }
 
 
-
+// --- Create Bill Controller (Protected) ---
 exports.billUpload = async (req, res) => {
     try {
-        // --- ADDED DEBUG LOGS ---
-        console.log("--- Request Received ---");
-        console.log("Request Body:", req.body);
-        console.log("Request Files:", req.files);
-        console.log("------------------------");
-        // --- END DEBUG LOGS ---
+        console.log("--- Request Received (Protected - billUpload) ---");
+        if (!req.user || !req.user.id) {
+             console.error("Authentication Error: req.user not found in billUpload.");
+             return res.status(401).json({ success: false, message: 'Not authorized. User information missing.' });
+        }
+        const userId = req.user.id;
+        console.log("Authenticated User ID:", userId);
+        console.log("Request Body:", req.body); // Log entire body for debugging
+        // console.log("Request Files:", req.files); // Uncomment if needed
 
-        // 1. Extract data from request body
-        const { billName, shopName, purchaseDate, items } = req.body;
+        // 1. Extract data from request body (including new fields)
+        const { billName, shopName, purchaseDate, items, shopPhoneNumber, shopAddress } = req.body;
 
         // --- Basic Validation ---
-        // Check if the fields exist in req.body AFTER logging it
         if (!billName || !shopName || !purchaseDate || !items) {
-            console.error("Validation Failed: One or more required text fields missing in req.body");
-            return res.status(400).json({
-                success: false,
-                message: "Missing required fields (billName, shopName, purchaseDate, items). Check server logs for req.body content.",
-            });
+            console.error("Validation Failed: Required text fields missing.");
+            return res.status(400).json({ success: false, message: "Missing required fields: billName, shopName, purchaseDate, items." });
         }
 
-        // 2. Parse items (assuming it's sent as a JSON string)
+        // 2. Parse and Validate Items
         let parsedItems;
         try {
+            if (typeof items !== 'string') { throw new Error("Items field must be sent as a JSON string."); }
             parsedItems = JSON.parse(items);
             if (!Array.isArray(parsedItems)) throw new Error("Items must be an array.");
-            // Optional: Add deeper validation for item structure here if needed
+            if (parsedItems.length === 0) throw new Error("Items array cannot be empty.");
+            for (const item of parsedItems) {
+                if (!item.itemName || typeof item.itemName !== 'string' || item.itemName.trim() === '') throw new Error("Each item must have a non-empty itemName.");
+                if (item.cost === undefined || typeof item.cost !== 'number' || item.cost < 0 || isNaN(item.cost)) throw new Error(`Invalid cost for item: ${item.itemName}`);
+                item.itemName = item.itemName.trim(); item.cost = Number(item.cost);
+            }
         } catch (parseError) {
-            console.error("Item Parsing Error:", parseError);
-            return res.status(400).json({
-                success: false,
-                message: "Invalid format for items. Please provide a valid JSON array string.",
-            });
+            console.error("Item Parsing/Validation Error:", parseError);
+            return res.status(400).json({ success: false, message: `Invalid items format: ${parseError.message}.` });
         }
 
-        // 3. Handle File Upload (Optional)
+         // 3. Validate Purchase Date
+         let validPurchaseDate;
+         try {
+            validPurchaseDate = new Date(purchaseDate);
+            if (isNaN(validPurchaseDate.getTime())) throw new Error("Invalid date value");
+         } catch(dateError) {
+            console.error("Invalid purchaseDate format:", purchaseDate);
+            return res.status(400).json({ success: false, message: "Invalid purchaseDate format." });
+         }
+
+
+        // 4. Handle File Upload (Optional)
         let billImageUrl;
         let cloudinaryId;
-        const file = req.files ? req.files.billPhoto : null; // Match the key used in frontend FormData
+        const file = req.files && req.files.billPhoto ? req.files.billPhoto : null;
 
         if (file) {
             console.log("Bill photo received:", file.name);
-
-            // Validation (Image Specific)
-            const supportedTypes = ["jpg", "jpeg", "png", "gif", "webp"]; // Add more if needed
+            const supportedTypes = ["jpg", "jpeg", "png", "gif", "webp", "pdf"];
             const fileType = file.name.split('.').pop()?.toLowerCase();
 
             if (!fileType || !isFileTypeSupported(fileType, supportedTypes)) {
-                return res.status(400).json({
-                    success: false,
-                    message: `File format (${fileType || 'unknown'}) not supported. Please upload: ${supportedTypes.join(', ')}`,
-                });
+                 return res.status(400).json({ success: false, message: `File format (${fileType || 'unknown'}) not supported.` });
             }
-
-            // Upload to Cloudinary
             console.log("Uploading bill photo to Cloudinary...");
-            const folderName = "billPhotos"; // Generic folder name since no user context
+            const folderName = `billPhotos/${userId}`;
             try {
-                const response = await uploadFileToCloudinary(file, folderName);
-                console.log("Cloudinary response:", response);
+                const response = await uploadFileToCloudinary(file, folderName, "auto");
+                console.log("Cloudinary upload response:", response);
                 billImageUrl = response.secure_url;
                 cloudinaryId = response.public_id;
             } catch (uploadError) {
                  console.error("Cloudinary Upload Error:", uploadError);
-                 console.warn("Proceeding without uploaded image due to Cloudinary error.");
-                 billImageUrl = undefined;
-                 cloudinaryId = undefined;
+                  return res.status(500).json({ success: false, message: "Failed to upload bill image. Bill not saved.", error: uploadError.message });
             }
-
         } else {
             console.log("No bill photo provided.");
         }
 
-        // 4. Create Bill entry in Database
+        // 5. Create Bill entry in Database
         const billData = {
-            // user field removed
-            billName,
-            shopName,
-            purchaseDate: new Date(purchaseDate), // Ensure it's stored as a Date object
-            items: parsedItems, // Use the parsed array
-            billImageUrl: billImageUrl, // Will be undefined if no file or upload failed
-            cloudinaryId: cloudinaryId,   // Will be undefined if no file or upload failed
+            user: userId,
+            billName: billName.trim(),
+            shopName: shopName.trim(),
+            purchaseDate: validPurchaseDate,
+            items: parsedItems,
+            billImageUrl: billImageUrl,
+            cloudinaryId: cloudinaryId,
+            // --- Add new fields, trim if provided, else default to empty string ---
+            shopPhoneNumber: shopPhoneNumber ? String(shopPhoneNumber).trim() : '',
+            shopAddress: shopAddress ? String(shopAddress).trim() : '',
         };
 
         const savedBill = await Bill.create(billData);
-        console.log("Bill saved to database:", savedBill._id);
+        console.log(`Bill saved to database for user ${userId}:`, savedBill._id);
 
-        // 5. Send Success Response
-        res.status(201).json({ // 201 Created status
+        // 6. Send Success Response
+        res.status(201).json({
             success: true,
             message: "Bill uploaded and saved successfully.",
-            bill: savedBill, // Send back the created bill document
+            bill: savedBill,
         });
 
     } catch (error) {
         console.error("Error in billUpload controller:", error);
-
         if (error.name === 'ValidationError') {
-             return res.status(400).json({
-                 success: false,
-                 message: "Validation Error",
-                 errors: error.errors
-             });
+             const messages = Object.values(error.errors).map(val => val.message);
+             return res.status(400).json({ success: false, message: "Validation Error creating bill.", errors: messages });
         }
-
         res.status(500).json({
             success: false,
             message: "Internal server error while uploading bill.",
-            error: error.message // Avoid sending detailed error in production
+            error: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred.'
         });
     }
 };
 
 
-
+// --- Get User's Bills Controller (Protected - remains the same) ---
 exports.getBills = async (req, res) => {
     try {
-        console.log("Fetching all bills...");
-        // Fetch all bills, sort by newest first (based on createdAt timestamp)
-        const allBills = await Bill.find({}).sort({ createdAt: -1 });
-
-        console.log(`Found ${allBills.length} bills.`);
-        res.status(200).json(allBills); // Send the array of bills
+        if (!req.user || !req.user.id) {
+            console.error("Authentication Error: req.user not found in getBills.");
+            return res.status(401).json({ success: false, message: 'Not authorized' });
+        }
+        const userId = req.user.id;
+        console.log(`Fetching bills for user: ${userId}...`);
+        const userBills = await Bill.find({ user: userId }).sort({ createdAt: -1 });
+        console.log(`Found ${userBills.length} bills for user ${userId}.`);
+        res.status(200).json({
+            success: true,
+            count: userBills.length,
+            bills: userBills
+        });
 
     } catch (error) {
         console.error("Error fetching bills:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch bills.",
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: "Failed to fetch bills.", error: error.message });
     }
 };

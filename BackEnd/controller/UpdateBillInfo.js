@@ -1,12 +1,14 @@
-const { Bill } = require("../models/BillPhotoInfo"); // Adjust path if needed
-const cloudinary = require("cloudinary").v2; // Assuming Cloudinary SDK is configured
+// controller/UpdateBillInfo.js
+
+const Bill = require("../models/BillPhotoInfo"); // Import the Bill model
+const cloudinary = require("cloudinary").v2;
 const mongoose = require('mongoose'); // Needed for ObjectId validation
 
-
+// --- Helper Functions (Copied for Standalone Use) ---
 
 // Checks if the file extension is in the list of supported types
 function isFileTypeSupported(type, supportedTypes) {
-    if (!type) return false; // Handle cases where extension extraction failed
+    if (!type) return false;
     return supportedTypes.includes(type.toLowerCase());
 }
 
@@ -14,13 +16,12 @@ function isFileTypeSupported(type, supportedTypes) {
 async function uploadFileToCloudinary(file, folder, resourceType = "auto", quality) {
     const options = {
         folder,
-        resource_type: resourceType, // Let Cloudinary auto-detect or set based on mimetype
-        overwrite: true,             // Overwrite if file with same public_id exists (optional)
+        resource_type: resourceType,
+        overwrite: true, // Good practice for updates if public_id isn't changing intentionally
     };
     if (quality) {
-        options.quality = quality; // e.g., for image compression
+        options.quality = quality;
     }
-    // Ensure file and tempFilePath exist (depends on express-fileupload config)
     if (!file || !file.tempFilePath) {
         throw new Error("File or temporary file path is missing for Cloudinary upload.");
     }
@@ -30,253 +31,206 @@ async function uploadFileToCloudinary(file, folder, resourceType = "auto", quali
 
 // Helper function to delete from Cloudinary
 async function deleteFileFromCloudinary(publicId) {
-    // Prevent errors if no ID is passed
     if (!publicId) {
         console.log("No Cloudinary public_id provided for deletion.");
         return { result: 'no_id' }; // Indicate no ID was given
     }
     try {
         console.log(`Attempting to delete Cloudinary file with public_id: ${publicId}`);
-        // Specify resource_type if known, otherwise Cloudinary might guess wrong
-        // For mixed types, you might need more complex logic or broader deletion attempts
-        const result = await cloudinary.uploader.destroy(publicId, { resource_type: "image" }); // Adjust if you store non-images
+        // Adjust resource_type if you store different types (e.g., "raw" for PDFs if not auto-detected)
+        const result = await cloudinary.uploader.destroy(publicId, { resource_type: "auto" }); // Try auto first
+        // If auto fails for specific types, you might retry with a specific type:
+        // if (result.result === 'not found') {
+        //     result = await cloudinary.uploader.destroy(publicId, { resource_type: "raw" });
+        // }
         console.log("Cloudinary deletion result:", result);
-        // result object contains { result: 'ok' } on success, or { result: 'not found' } etc.
         return result;
     } catch (error) {
         console.error(`Error deleting file ${publicId} from Cloudinary:`, error);
-        // Don't stop the main update process, just log the error
-        return { result: 'error', error: error }; // Indicate error
+        // Log error but don't necessarily stop the main process
+        return { result: 'error', error: error };
     }
 }
 
-// --- UPDATE BILL Controller ---
-exports.updateBills= async (req, res) => {
-    const { id: billId } = req.params; // Get bill ID from URL parameter
-    const updatePayload = req.body;    // Get the potential updates from body
-    const file = req.files ? req.files.billPhoto : null; // Check for a new file
+exports.updateBills = async (req, res) => {
+    const { id: billId } = req.params;
+    const updatePayload = req.body;
+    const file = req.files && req.files.billPhoto ? req.files.billPhoto : null;
 
-    console.log(`--- Bill Update Request --- ID: ${billId}`);
-    console.log(`Payload (Body):`, updatePayload);
+    if (!req.user || !req.user.id) {
+        console.error("Authentication Error: req.user not found in updateBills.");
+        return res.status(401).json({ success: false, message: 'Not authorized' });
+    }
+    const userId = req.user.id;
+
+    console.log(`--- Bill Update Request --- ID: ${billId}, User: ${userId}`);
+    // Avoid logging entire payload if it might contain sensitive info in future
+    // console.log(`Payload (Body):`, updatePayload);
     console.log(`New File:`, file ? file.name : 'No');
 
-    // 1. Validate ID Format
     if (!mongoose.Types.ObjectId.isValid(billId)) {
         console.error("Validation Error: Invalid Bill ID format.");
         return res.status(400).json({ success: false, message: "Invalid Bill ID format provided." });
     }
 
     try {
-        // 2. Find the existing bill - needed for old Cloudinary ID & checking existence
-        const existingBill = await Bill.findById(billId);
-        if (!existingBill) { // Corrected variable name
-            console.error(`Error: Bill with ID ${billId} not found.`);
-            return res.status(404).json({
-                success: false,
-                message: "Bill not found." // Corrected message
-            });
+        // 2. Find the existing bill AND verify ownership
+        const existingBill = await Bill.findOne({ _id: billId, user: userId });
+        if (!existingBill) {
+            console.error(`Error: Bill ${billId} not found OR does not belong to user ${userId}.`);
+            return res.status(404).json({ success: false, message: "Bill not found or you do not have permission." });
         }
-        console.log(`Found existing bill to update. Old Cloudinary ID: ${existingBill.cloudinaryId || 'None'}`);
+        console.log(`Found bill owned by user ${userId} to update.`);
 
-        // 3. Prepare update data object
+        // 3. Prepare update data object - include only fields present in payload
         const updateData = {};
-        // Store old Cloudinary ID before potentially overwriting it in updateData
         let oldCloudinaryId = existingBill.cloudinaryId;
 
-        // Process text fields if they are present in the request body
-        if (updatePayload.billName !== undefined && updatePayload.billName !== null) {
+        // Process standard fields if present
+        if (updatePayload.billName !== undefined) {
             updateData.billName = String(updatePayload.billName).trim();
+            if (!updateData.billName) return res.status(400).json({ success: false, message: "Bill name cannot be empty." });
         }
-        if (updatePayload.shopName !== undefined && updatePayload.shopName !== null) {
+        if (updatePayload.shopName !== undefined) {
             updateData.shopName = String(updatePayload.shopName).trim();
+            if (!updateData.shopName) return res.status(400).json({ success: false, message: "Shop name cannot be empty." });
         }
-        if (updatePayload.purchaseDate !== undefined && updatePayload.purchaseDate !== null) {
-             if (!updatePayload.purchaseDate) { // Handle empty string case
-                 return res.status(400).json({ success: false, message: "Purchase date cannot be empty if provided." });
-             }
+        if (updatePayload.purchaseDate !== undefined) {
+             if (!updatePayload.purchaseDate) return res.status(400).json({ success: false, message: "Purchase date cannot be empty." });
              try {
-                const parsedDate = new Date(updatePayload.purchaseDate);
-                if (isNaN(parsedDate.getTime())) { // Check if date conversion resulted in a valid date
-                    throw new Error("Invalid date value");
-                }
-                updateData.purchaseDate = parsedDate;
-            } catch (e) {
-                 console.error("Error parsing purchaseDate:", e);
-                 return res.status(400).json({ success: false, message: "Invalid purchaseDate format provided. Use YYYY-MM-DD." });
-            }
+                 const parsedDate = new Date(updatePayload.purchaseDate);
+                 if (isNaN(parsedDate.getTime())) throw new Error("Invalid date value");
+                 updateData.purchaseDate = parsedDate;
+             } catch (e) { return res.status(400).json({ success: false, message: "Invalid purchaseDate format." }); }
         }
-        // Process items field if present
-        if (updatePayload.items !== undefined && updatePayload.items !== null) {
+        if (updatePayload.items !== undefined) {
             try {
-                 // Ensure items is a string before parsing (as it comes from form-data)
-                 if (typeof updatePayload.items !== 'string' || updatePayload.items.trim() === '') {
-                    throw new Error("Items field must be a non-empty JSON string.");
-                 }
+                if (typeof updatePayload.items !== 'string' || updatePayload.items.trim() === '') throw new Error("Items must be non-empty JSON string.");
                 const parsedItems = JSON.parse(updatePayload.items);
-                if (!Array.isArray(parsedItems)) {
-                    throw new Error("Parsed items is not an array.");
-                 }
-                // Validate and format each item
-                 updateData.items = parsedItems.map((item, index) => {
-                    const cost = parseFloat(item.cost);
-                    if (!item.itemName || typeof item.itemName !== 'string' || item.itemName.trim() === '') {
-                        throw new Error(`Item name is required and must be a non-empty string for item at index ${index}.`);
-                    }
-                    if (isNaN(cost) || cost < 0) {
-                        throw new Error(`Invalid or negative cost provided for item "${item.itemName}" at index ${index}.`);
-                    }
-                    return {
-                        itemName: item.itemName.trim(),
-                        cost: cost
-                    };
-                 });
-                 console.log("Formatted items for update:", updateData.items);
+                if (!Array.isArray(parsedItems) || parsedItems.length === 0) throw new Error("Items must be non-empty array.");
+                updateData.items = parsedItems.map((item, index) => {
+                     const cost = parseFloat(item.cost);
+                     if (!item.itemName || typeof item.itemName !== 'string' || item.itemName.trim() === '') throw new Error(`Item name required at index ${index}.`);
+                     if (isNaN(cost) || cost < 0) throw new Error(`Invalid cost for item "${item.itemName}" at index ${index}.`);
+                     return { itemName: item.itemName.trim(), cost: cost };
+                });
             } catch (e) {
                 console.error("Item Parsing/Validation Error during update:", e);
-                return res.status(400).json({
-                    success: false,
-                    message: `Invalid format or content for items: ${e.message}. Must be JSON array string with valid items.`,
-                });
+                return res.status(400).json({ success: false, message: `Invalid items: ${e.message}` });
             }
         }
 
-        // 4. Handle New File Upload (if provided)
+        // --- Process NEW fields if present ---
+        if (updatePayload.shopPhoneNumber !== undefined) {
+            // Allow setting to empty string, trim otherwise
+            updateData.shopPhoneNumber = String(updatePayload.shopPhoneNumber).trim();
+            // Optional: Add validation for phone number format here if needed
+        }
+        if (updatePayload.shopAddress !== undefined) {
+             // Allow setting to empty string, trim otherwise
+            updateData.shopAddress = String(updatePayload.shopAddress).trim();
+        }
+        // --- End NEW fields ---
+
+        // 4. Handle New File Upload
         if (file) {
             console.log("Processing new file for update:", file.name);
-            const supportedTypes = ["jpg", "jpeg", "png", "gif", "webp", "pdf"]; // Define supported types
-            const fileExtension = file.name.split('.').pop(); // Get extension
+            const supportedTypes = ["jpg", "jpeg", "png", "gif", "webp", "pdf"];
+            const fileExtension = file.name.split('.').pop()?.toLowerCase();
             if (!isFileTypeSupported(fileExtension, supportedTypes)) {
-                console.error(`Unsupported file type: ${fileExtension}`);
-                return res.status(400).json({
-                    success: false,
-                    message: `Unsupported file type: ${fileExtension}. Supported: ${supportedTypes.join(', ')}`
-                });
+                return res.status(400).json({ success: false, message: `Unsupported file type: ${fileExtension}.` });
             }
-
             try {
-                const folderName = "billease_uploads"; // Define your Cloudinary folder
-                const response = await uploadFileToCloudinary(file, folderName); // Upload
+                const folderName = `billPhotos/${userId}`;
+                const response = await uploadFileToCloudinary(file, folderName, "auto");
                 console.log("New file uploaded. Cloudinary response:", response);
-
-                updateData.billImageUrl = response.secure_url; // Add new URL to update data
-                updateData.cloudinaryId = response.public_id;   // Add new ID to update data (corrected case)
-
+                updateData.billImageUrl = response.secure_url;
+                updateData.cloudinaryId = response.public_id;
             } catch (uploadError) {
-               console.error("Cloudinary upload failed during update:", uploadError); // Log error
-               // Return 500 error if upload fails
-               return res.status(500).json({ // Corrected response format
-                success: false,
-                message: "Failed to upload new bill image."
-               });
+                console.error("Cloudinary upload failed during update:", uploadError);
+                return res.status(500).json({ success: false, message: "Failed to upload new bill image." });
             }
         }
 
         // 5. Check if any actual data changes were provided
-        if (Object.keys(updateData).length === 0) { // Check if updateData is still empty (no file OR text changes)
+        if (Object.keys(updateData).length === 0 && !file) {
             console.log("No fields to update.");
-            // Return success, indicating no change was needed, and send back original bill
-            return res.status(200).json({
-                success: true,
-                message: "No changes provided.",
-                bill: existingBill // Corrected variable name
-            });
+            return res.status(200).json({ success: true, message: "No changes provided.", bill: existingBill });
         }
 
         // 6. Perform database update
         console.log("Updating Bill in DB with:", updateData);
         const updatedBill = await Bill.findByIdAndUpdate(
             billId,
-            { $set: updateData }, // Use $set to apply partial updates
-            { new: true, runValidators: true } // Return updated doc, run schema validations
+            { $set: updateData },
+            { new: true, runValidators: true }
         );
 
-        // Check if update returned a document
         if (!updatedBill) {
-             console.error(`Bill ${billId} not found during final update operation.`);
-             return res.status(404).json({ success: false, message: "Bill could not be updated as it was not found." });
+             console.error(`Bill ${billId} vanished during update operation for user ${userId}.`);
+             return res.status(404).json({ success: false, message: "Bill could not be updated." });
         }
-        console.log("Bill updated successfully in DB.");
+        console.log("Bill updated successfully in DB for user:", userId);
 
-        // 7. Delete old Cloudinary image ONLY if a new file was successfully uploaded
-        // Check if 'file' exists (meaning new upload happened) AND if there was an 'oldCloudinaryId'
+        // 7. Delete old Cloudinary image ONLY if new file was uploaded AND old ID existed
         if (file && oldCloudinaryId) {
             console.log(`New image uploaded, deleting old Cloudinary image: ${oldCloudinaryId}`);
-            // Call deletion helper (corrected variable name)
             await deleteFileFromCloudinary(oldCloudinaryId);
-            // Note: We proceed even if deletion fails, logging handled within helper
         }
 
         // 8. Send Success Response
-        res.status(200).json({
-            success: true,
-            message: "Bill Updated Successfully",
-            bill: updatedBill // Send the latest version
-        });
+        res.status(200).json({ success: true, message: "Bill Updated Successfully", bill: updatedBill });
 
     } catch (error) {
-       
-        console.error("Error during bill update:", error);
+        console.error(`Error during bill update process for user ${userId}:`, error);
         if (error.name === 'ValidationError') {
-            return res.status(400).json({ success: false, message: "Validation failed during update.", errors: error.errors });
+             const messages = Object.values(error.errors).map(val => val.message);
+             return res.status(400).json({ success: false, message: messages.join('. ') });
         }
         res.status(500).json({
             success: false,
             message: "Internal server error while updating bill.",
-            // Avoid sending detailed error message in production
             error: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred.'
         });
     }
 };
 
 
+// --- DELETE BILL Controller (Protected - remains the same) ---
 exports.deleteBills = async (req, res) => {
-    const { id: billId } = req.params; // Get bill ID from URL parameter e.g., /bills/12345
+    const { id: billId } = req.params;
+    if (!req.user || !req.user.id) {
+        console.error("Authentication Error: req.user not found in deleteBills.");
+        return res.status(401).json({ success: false, message: 'Not authorized' });
+    }
+    const userId = req.user.id;
+    console.log(`--- Bill Delete Request --- ID: ${billId}, User: ${userId}`);
 
-    console.log(`--- Bill Delete Request Received --- ID: ${billId}`);
-
-    // 1. Validate ID format
     if (!mongoose.Types.ObjectId.isValid(billId)) {
-        console.error("Validation Error: Invalid Bill ID format provided.");
         return res.status(400).json({ success: false, message: "Invalid Bill ID format." });
     }
 
     try {
-        // 2. Find the bill *before* deleting to get its Cloudinary ID
-        // Using findByIdAndDelete atomically finds and deletes, returning the doc if found
-        const billToDelete = await Bill.findByIdAndDelete(billId);
-
+        const billToDelete = await Bill.findOneAndDelete({ _id: billId, user: userId });
         if (!billToDelete) {
-            // If findByIdAndDelete returns null, the document wasn't found
-            console.log(`Bill ${billId} not found for deletion (may have been already deleted).`);
-            // It's conventional to return success even if not found, as the goal (non-existence) is achieved
-            return res.status(200).json({ success: true, message: "Bill not found or already deleted." });
-            // Or return 404 if you prefer:
-            // return res.status(404).json({ success: false, message: "Bill not found." });
+            console.log(`Bill ${billId} not found or user ${userId} does not have permission.`);
+            return res.status(404).json({ success: false, message: "Bill not found or you don't have permission." });
         }
-
-        console.log(`Bill ${billId} deleted successfully from database.`);
-        const cloudinaryIdToDelete = billToDelete.cloudinaryId; // Get the ID from the deleted document
-
-        // 3. Delete the associated image from Cloudinary (if it had one)
+        console.log(`Bill ${billId} deleted successfully from database for user ${userId}.`);
+        const cloudinaryIdToDelete = billToDelete.cloudinaryId;
         if (cloudinaryIdToDelete) {
             console.log(`Attempting to delete associated Cloudinary image: ${cloudinaryIdToDelete}`);
             await deleteFileFromCloudinary(cloudinaryIdToDelete);
-            // We proceed even if Cloudinary deletion fails, logging handled within helper
         } else {
             console.log(`No Cloudinary ID associated with deleted bill ${billId}.`);
         }
-
-        // 4. Send success response
         res.status(200).json({ success: true, message: "Bill deleted successfully." });
-
     } catch (error) {
-        // 5. Catchall Error Handler
-        console.error("Error during bill deletion:", error);
+        console.error(`Error during bill deletion for user ${userId}:`, error);
         res.status(500).json({
             success: false,
-            message: "Internal server error while deleting bill.",
-            // Avoid sending detailed internal error messages in production
-            error: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred.'
+            message: "Internal server error.",
+             error: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred.'
         });
     }
 };
