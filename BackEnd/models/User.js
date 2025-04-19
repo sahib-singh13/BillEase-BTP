@@ -19,32 +19,44 @@ const userSchema = new Schema({
     },
     password: {
         type: String,
-        // --- MODIFICATION START ---
-        // Make password required ONLY if googleId is not set
-        required: function() {
-             // 'this' refers to the document being saved/validated
-             return !this.googleId;
-        },
-        // --- MODIFICATION END ---
+        required: function() { return !this.googleId; }, // Required only if not Google signup
         minlength: [6, 'Password must be at least 6 characters long'],
-        select: false // Keep password hidden by default
+        select: false
     },
     googleId: {
          type: String,
          unique: true,
-         sparse: true // Important: Allows multiple documents without googleId (null)
+         sparse: true
+    },
+    // --- NEW PROFILE FIELDS ---
+    phoneNumber: {
+        type: String,
+        trim: true,
+        default: ''
+    },
+    address: {
+        type: String,
+        trim: true,
+        default: ''
+    },
+    profilePictureUrl: { // URL from Cloudinary
+        type: String,
+        trim: true,
+        default: ''
+    },
+    profilePictureCloudinaryId: { // Public ID for deletion
+        type: String,
+        trim: true,
+        default: ''
     }
+    // --- END NEW PROFILE FIELDS ---
 }, { timestamps: true });
 
 // --- Password Hashing Middleware ---
-// Hash password only if it's modified (or new and present)
 userSchema.pre('save', async function(next) {
-    // Only run this function if password was actually modified (or is new and provided)
-    // Also, skip hashing if there's no password (e.g., Google signup)
     if (!this.isModified('password') || !this.password) {
          return next();
     }
-
     try {
         const salt = await bcrypt.genSalt(10);
         this.password = await bcrypt.hash(this.password, salt);
@@ -54,12 +66,9 @@ userSchema.pre('save', async function(next) {
     }
 });
 
-// --- Password Comparison Method (Keep as is) ---
+// --- Password Comparison Method ---
 userSchema.methods.comparePassword = async function(candidatePassword) {
-    // Handle cases where a Google user might somehow try a password login
-    if (!this.password) {
-        return false;
-    }
+    if (!this.password) return false;
     return await bcrypt.compare(candidatePassword, this.password);
 };
 

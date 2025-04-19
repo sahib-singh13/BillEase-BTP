@@ -6,10 +6,12 @@ const cloudinaryConfig = require("./config/cloudinary"); // Renamed for clarity
 const fileupload=require("express-fileupload");
 const cors = require("cors");
 
+
 // --- Import Routes ---
 const contactRoutes=require("./routes/contacts");
 const billPhotoRoutes=require("./routes/billPhotos");
-const authRoutes = require('./routes/auth'); // Import auth routes
+const authRoutes = require('./routes/auth');
+const chatbotRoutes = require('./routes/chatbot'); // Import auth routes
 
 const app=express();
 const PORT=process.env.PORT || 5000;
@@ -29,7 +31,8 @@ app.use(fileupload({
 // --- API Routes ---
 app.use("/billease/auth", authRoutes); // Mount auth routes (added /api/v1 prefix)
 app.use("/billease/contacts", contactRoutes); // Mount contact routes (added prefix)
-app.use("/billease/bills", billPhotoRoutes); // Mount bill routes (added prefix, changed path slightly for clarity)
+app.use("/billease/bills", billPhotoRoutes);
+app.use("/billease/chatbot", chatbotRoutes); // Mount bill routes (added prefix, changed path slightly for clarity)
 
 // --- Root Route ---
 app.get("/", (req, res) => {

@@ -1,15 +1,24 @@
 // src/components/BillDetailModal.jsx
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // Import useNavigate
 import toast from 'react-hot-toast';
-import { FaEdit, FaTrash, FaTimes, FaSave, FaUndo, FaPlus, FaMinus, FaImage, FaFilePdf, FaSpinner, FaPhone, FaMapMarkerAlt } from 'react-icons/fa';
+import {
+    FaEdit, FaTrash, FaTimes, FaSave, FaUndo, FaPlus, FaMinus,
+    FaImage, FaFilePdf, FaSpinner, FaPhone, FaMapMarkerAlt,
+    FaShieldAlt // Icon for Warranty
+} from 'react-icons/fa';
 import api from '../services/api'; // Use the configured api instance
+import { useAuth } from '../context/AuthContext'; // Import useAuth to potentially get user details
 
 const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
+  const navigate = useNavigate(); // Initialize navigate hook
+  const { user } = useAuth(); // Get current user data if needed for claim page
+
   // --- State Variables ---
   const [isEditing, setIsEditing] = useState(false);
   const [editableBillData, setEditableBillData] = useState({ // Initialize fully
-    billName: '', shopName: '', purchaseDate: '', billImageUrl: '', items: [], _id: null, cloudinaryId: null,
-    shopPhoneNumber: '', shopAddress: '',
+    billName: '', shopName: '', purchaseDate: '', billImageUrl: null, items: [], _id: null, cloudinaryId: null,
+    shopPhoneNumber: '', shopAddress: '', user: null
   });
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -28,7 +37,7 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
     }
   }, [isOpen]);
 
-  // Populate state when bill prop changes or modal opens
+  // Populate/reset state when bill prop changes or modal opens/closes
   useEffect(() => {
     if (bill && isOpen) {
       const formattedDate = bill.purchaseDate ? new Date(bill.purchaseDate).toISOString().split('T')[0] : '';
@@ -36,14 +45,15 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
         billName: bill.billName || '',
         shopName: bill.shopName || '',
         purchaseDate: formattedDate,
-        billImageUrl: bill.billImageUrl || null, // Use null for consistency if checking later
+        billImageUrl: bill.billImageUrl || null,
         items: bill.items ? JSON.parse(JSON.stringify(bill.items)) : [],
         _id: bill._id,
         cloudinaryId: bill.cloudinaryId || null,
         shopPhoneNumber: bill.shopPhoneNumber || '',
         shopAddress: bill.shopAddress || '',
+        user: bill.user // Keep user ID associated with the bill
       });
-      // Reset edit-specific state only if not currently editing or if the bill prop itself changes
+      // Reset edit-specific state ONLY if not currently editing OR if the bill prop itself changes
       if (!isEditing || (editableBillData._id !== bill._id)) {
          setSelectedFile(null);
          setPreviewUrl(null);
@@ -51,61 +61,94 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
          setIsDirty(false);
       }
     } else if (!isOpen) {
-       // Optionally reset more thoroughly on close if needed
-       setIsEditing(false); // Always turn off editing on close
-       // The other resets happen above when reopening with a new bill or !isEditing
+       // Reset more state when modal is fully closed
+       setIsEditing(false);
+       setSelectedFile(null);
+       setPreviewUrl(null);
+       setError(null);
+       setIsDirty(false);
+       setEditableBillData({ billName: '', shopName: '', purchaseDate: '', billImageUrl: null, items: [], _id: null, cloudinaryId: null, shopPhoneNumber: '', shopAddress: '', user: null });
     }
-  }, [bill, isOpen, isEditing, editableBillData._id]); // Added editableBillData._id to deps
+  // Depend on bill._id to re-populate when a different bill is selected
+  // Depend on isOpen to populate when opened
+  // Depend on isEditing to prevent resetting while user is actively editing
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bill?._id, isOpen, isEditing]);
 
   useEffect(() => { // File preview generation
     if (!selectedFile) { setPreviewUrl(null); return; }
-    const objectUrl = URL.createObjectURL(selectedFile); setPreviewUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl); // Cleanup
+    const objectUrl = URL.createObjectURL(selectedFile);
+    setPreviewUrl(objectUrl);
+    // Cleanup function to revoke the object URL
+    return () => URL.revokeObjectURL(objectUrl);
   }, [selectedFile]);
 
   // --- Event Handlers ---
   const handleChange = (e) => {
     const { name, value } = e.target;
     setEditableBillData(prev => ({ ...prev, [name]: value }));
-    setIsDirty(true); // Mark form as dirty
+    setIsDirty(true);
   };
 
   const handleItemChange = (index, field, value) => {
     setEditableBillData(prev => {
-      const newItems = prev.items.map((item, i) => i === index ? { ...item, [field]: value } : item);
+      // Create a deep copy of items to avoid direct state mutation
+      const newItems = JSON.parse(JSON.stringify(prev.items));
+      if (index >= 0 && index < newItems.length) {
+         newItems[index][field] = value;
+      }
       return { ...prev, items: newItems };
     });
     setIsDirty(true);
   };
 
   const handleAddItem = () => {
-    setEditableBillData(prev => ({ ...prev, items: [...prev.items, { itemName: '', cost: '' }] }));
+    setEditableBillData(prev => ({
+      ...prev,
+      items: [...prev.items, { itemName: '', cost: '' }] // Add new empty item
+    }));
     setIsDirty(true);
   };
 
   const handleRemoveItem = (index) => {
-    if (editableBillData.items.length <= 1 && isEditing) { toast.error("At least one item is required."); return; }
-    setEditableBillData(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
+    if (editableBillData.items.length <= 1 && isEditing) {
+        toast.error("At least one item is required.");
+        return;
+    }
+    setEditableBillData(prev => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index) // Remove item at index
+    }));
     setIsDirty(true);
   };
 
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
-        setError('Please select an image or PDF file.');
-        setSelectedFile(null); setPreviewUrl(null); if(e.target) e.target.value = '';
-        // Don't reset isDirty here - user might have made other changes
+    const file = e.target.files?.[0]; // Use optional chaining
+    if (file) {
+      // Validation
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'];
+      if (!allowedTypes.includes(file.type)) {
+        setError('Please select an image (JPEG, PNG, GIF, WebP) or PDF file.');
+        setSelectedFile(null); setPreviewUrl(null); if(e.target) e.target.value = ''; // Clear file input
         return;
       }
-      setError(null); setSelectedFile(file); setIsDirty(true);
+      const maxSize = 10 * 1024 * 1024; // Example: 10MB limit
+      if (file.size > maxSize) {
+          setError(`File size exceeds the limit of ${maxSize / 1024 / 1024}MB.`);
+          setSelectedFile(null); setPreviewUrl(null); if(e.target) e.target.value = '';
+          return;
+      }
+      // Valid file
+      setError(null);
+      setSelectedFile(file);
+      setIsDirty(true);
     }
   };
 
   // --- Delete Handler ---
   const handleDelete = async () => {
     if (!bill?._id) return;
-    if (window.confirm(`Are you sure you want to delete the bill "${bill.billName || 'this bill'}"?`)) {
+    if (window.confirm(`Are you sure you want to delete the bill "${editableBillData.billName || 'this bill'}"? This cannot be undone.`)) {
       setIsLoading(true); setError(null);
       const toastId = toast.loading(`Deleting bill...`);
       try {
@@ -123,9 +166,9 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
 
   // --- Toggle Edit Mode ---
   const handleEditToggle = () => {
-    setError(null);
+    setError(null); // Clear errors on toggle
     if (isEditing) { // If cancelling edit
-      // Reset form to original 'bill' data passed in props
+      // Reset form state to match the original 'bill' prop
       const formattedDate = bill.purchaseDate ? new Date(bill.purchaseDate).toISOString().split('T')[0] : '';
       setEditableBillData({
          billName: bill.billName || '', shopName: bill.shopName || '',
@@ -133,10 +176,13 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
          items: bill.items ? JSON.parse(JSON.stringify(bill.items)) : [],
          _id: bill._id, cloudinaryId: bill.cloudinaryId || null,
          shopPhoneNumber: bill.shopPhoneNumber || '', shopAddress: bill.shopAddress || '',
+         user: bill.user
       });
-      setSelectedFile(null); setPreviewUrl(null); setIsDirty(false);
+      setSelectedFile(null); // Clear selected file
+      setPreviewUrl(null);   // Clear preview
+      setIsDirty(false);     // Reset dirty flag
     }
-    // If entering edit mode, current editableBillData is already populated correctly by useEffect
+    // Toggle the editing state
     setIsEditing(!isEditing);
   };
 
@@ -149,11 +195,17 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
     for (const item of editableBillData.items) {
       if (!item.itemName?.trim()) return "All item names are required.";
       const costValue = parseFloat(item.cost);
+      // Check cost validity more thoroughly
       if (item.cost === null || item.cost === undefined || item.cost === '' || isNaN(costValue) || costValue < 0) {
-           return `Invalid cost for item "${item.itemName || '(Unnamed)'}". Costs must be non-negative numbers.`;
+           return `Item "${item.itemName || '(Unnamed)'}" requires a valid non-negative cost.`;
       }
     }
-    return null;
+    // Add validation for phone number format if desired (optional)
+    // const phoneRegex = /^\+?[0-9\s\-()]{7,20}$/;
+    // if (editableBillData.shopPhoneNumber && !phoneRegex.test(editableBillData.shopPhoneNumber)) {
+    //     return "Invalid shop phone number format.";
+    // }
+    return null; // No errors
   };
 
   // --- Form Submission (Update) ---
@@ -177,19 +229,38 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
     if (editableBillData.shopName !== bill.shopName) formData.append('shopName', editableBillData.shopName || '');
     const originalFormattedDate = bill.purchaseDate ? new Date(bill.purchaseDate).toISOString().split('T')[0] : '';
     if (editableBillData.purchaseDate !== originalFormattedDate) formData.append('purchaseDate', editableBillData.purchaseDate || '');
+    // Compare items (simple stringify comparison, might need deep compare for complex cases)
     if (JSON.stringify(editableBillData.items) !== JSON.stringify(bill.items || [])) {
-        const formattedItems = editableBillData.items.map(item => ({ itemName: item.itemName.trim(), cost: parseFloat(item.cost) }));
+        const formattedItems = editableBillData.items.map(item => ({
+            itemName: item.itemName.trim(),
+            // Ensure cost is parsed as a number before sending
+            cost: isNaN(parseFloat(item.cost)) ? 0 : parseFloat(item.cost)
+        }));
         formData.append('items', JSON.stringify(formattedItems));
     }
+    // Compare new fields
     if (editableBillData.shopPhoneNumber !== (bill.shopPhoneNumber || '')) formData.append('shopPhoneNumber', editableBillData.shopPhoneNumber.trim());
     if (editableBillData.shopAddress !== (bill.shopAddress || '')) formData.append('shopAddress', editableBillData.shopAddress.trim());
+    // Always append file if a new one is selected
     if (selectedFile) formData.append('billPhoto', selectedFile);
     // --- End Append ---
 
+    // Check if any data was actually added to FormData
     let hasDataToSend = !!selectedFile;
-    for (const _ of formData.entries()) { hasDataToSend = true; break; } // Use underscore if value not needed
-
+    // formData.entries() might not be standard in all environments for checking size directly
+    // Iterate to check if any fields were added besides potentially the file
+    // Use Array.from to safely iterate if needed: Array.from(formData.keys()).length > (selectedFile ? 1 : 0)
     if (!hasDataToSend) {
+        for (const key of formData.keys()) {
+             if (key !== 'billPhoto') { // Check for non-file keys
+                hasDataToSend = true;
+                break;
+             }
+        }
+    }
+
+
+    if (!hasDataToSend) { // Check if only file OR nothing changed
         setIsLoading(false); toast('No changes detected.', { id: toastId, icon: '🤷' });
         setIsEditing(false); setIsDirty(false); return;
     }
@@ -209,16 +280,38 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
   // --- Locate on Map Handler ---
   const handleLocateMap = () => {
       const address = editableBillData.shopAddress?.trim();
-      if (!address) { toast.error("No shop address provided."); return; }
+      if (!address) { toast.error("No shop address provided to locate."); return; }
       const query = encodeURIComponent(address);
       const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
       window.open(googleMapsUrl, '_blank', 'noopener,noreferrer');
-  }
+  };
+
+  // --- Warranty Claim Handler ---
+  const handleClaimWarrantyClick = () => {
+    if (!bill) return;
+    // Use the currently displayed data (which matches 'bill' prop unless editing was cancelled)
+     const currentBillDetails = {
+         ...editableBillData // Includes all fields currently in state
+     };
+    // Ensure user details from context are available
+    if (!user) {
+        toast.error("User details not available. Cannot proceed with warranty claim.");
+        return;
+    }
+    console.log("Navigating to warranty claim with bill:", currentBillDetails, "and user:", user);
+    navigate('/warranty-claim', {
+        state: {
+            billData: currentBillDetails, // Pass the detailed bill data
+            currentUser: user            // Pass current logged-in user details
+        }
+    });
+    handleCloseAnimation(); // Close the modal after initiating navigation
+  };
 
   // --- Other handlers & Render setup ---
-  const handleModalContentClick = (e) => e.stopPropagation();
-  const handleCloseAnimation = () => { setShowModal(false); setTimeout(onClose, 300); };
-  if (!isOpen && !showModal) return null;
+  const handleModalContentClick = (e) => e.stopPropagation(); // Prevent closing modal on inner click
+  const handleCloseAnimation = () => { setShowModal(false); setTimeout(onClose, 300); }; // Close with animation
+  if (!isOpen && !showModal) return null; // Render nothing if closed
   const displayImageUrl = previewUrl || editableBillData.billImageUrl;
   const isPdf = selectedFile?.type === 'application/pdf' || (!selectedFile && displayImageUrl?.toLowerCase().endsWith('.pdf'));
 
@@ -228,7 +321,7 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
   const viewTextClass = "text-gray-800 bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-2.5 rounded-lg border border-gray-200 min-h-[46px] break-words text-sm shadow-inner flex items-center";
   const iconInputWrapperClass = "relative";
   const iconClass = "absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400";
-  const labelClass = "block text-sm font-medium text-gray-600 mb-1.5"; // Consistent label style
+  const labelClass = "block text-sm font-medium text-gray-600 mb-1.5";
 
   return (
     // Modal Backdrop
@@ -251,11 +344,12 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
         <div className="flex-grow overflow-y-auto px-7 py-6 custom-scrollbar space-y-7 bg-gray-50/40">
           {error && <div className="mb-4 p-3.5 bg-red-100 text-red-800 border border-red-300 rounded-lg text-sm shadow-sm" role="alert">{error}</div>}
           <form onSubmit={handleSubmit} noValidate className="space-y-7">
+            {/* --- Main Content Grid --- */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-7 gap-y-6">
               {/* Left Side: Image/File Area */}
               <div className="flex flex-col items-center justify-start space-y-5">
-                {/* Edit Mode File Input */}
-                {isEditing && (
+                 {/* Edit Mode File Input & Previews */}
+                 {isEditing && (
                    <div className="w-full p-5 border-2 border-dashed border-gray-300 hover:border-orange-500 hover:bg-orange-50/30 transition-all duration-200 rounded-lg text-center group">
                      <label htmlFor="billPhotoEdit" className="cursor-pointer text-orange-600 group-hover:text-orange-700 text-sm font-medium block transition-colors"> <FaImage className="inline-block mr-2 mb-1 text-lg" /> {selectedFile ? selectedFile.name : 'Change image / PDF'} </label>
                      <input type="file" id="billPhotoEdit" name="billPhoto" onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" disabled={isLoading}/>
@@ -266,66 +360,35 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
                  )}
                  {/* File Display Area */}
                 <div className="w-full h-64 bg-white flex items-center justify-center overflow-hidden rounded-lg border border-gray-200 shadow-md p-2">
-                     {isPdf && displayImageUrl && (
-                         <div className='text-center p-4'> <FaFilePdf className="mx-auto text-6xl text-red-600 mb-3" /> <p className='text-sm text-gray-700 font-medium'>PDF Document</p> <a href={displayImageUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-orange-600 hover:underline mt-1 block">View PDF</a> </div>
-                     )}
-                     {!isPdf && displayImageUrl && ( <img src={displayImageUrl} alt={`Bill for ${editableBillData.billName || bill?.billName || 'Unknown Bill'}`} className="max-w-full max-h-full object-contain rounded-sm"/> )}
+                     {isPdf && displayImageUrl && ( <div className='text-center p-4'> <FaFilePdf className="mx-auto text-6xl text-red-600 mb-3" /> <p className='text-sm text-gray-700 font-medium'>PDF Document</p> <a href={displayImageUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-orange-600 hover:underline mt-1 block">View PDF</a> </div> )}
+                     {!isPdf && displayImageUrl && ( <img src={displayImageUrl} alt={`Bill for ${editableBillData.billName || 'Unknown Bill'}`} className="max-w-full max-h-full object-contain rounded-sm"/> )}
                      {!displayImageUrl && ( <div className="text-center p-4"> <FaImage className="mx-auto text-5xl text-gray-300 mb-2" /> <span className="text-gray-400 italic text-sm">No Image Available</span> </div> )}
                  </div>
               </div>
 
               {/* Right Side: Textual Details */}
               <div className="space-y-6">
+                {/* Bill Name */}
                 <div> <label htmlFor="billNameEdit" className={labelClass}>Bill Name *</label> {isEditing ? ( <input id="billNameEdit" name="billName" type="text" placeholder="Bill Description" value={editableBillData.billName} onChange={handleChange} className={inputClass} required disabled={isLoading}/> ) : ( <p className={viewTextClass}>{editableBillData.billName || '(Not Set)'}</p> )} </div>
+                {/* Shop Name */}
                 <div> <label htmlFor="shopNameEdit" className={labelClass}>Shop Name *</label> {isEditing ? ( <input id="shopNameEdit" name="shopName" type="text" placeholder="Name of the shop" value={editableBillData.shopName} onChange={handleChange} className={inputClass} required disabled={isLoading}/> ) : ( <p className={viewTextClass}>{editableBillData.shopName || '(Not Set)'}</p> )} </div>
-                {/* --- Shop Phone --- */}
+                {/* Shop Phone */}
                 <div>
                     <label htmlFor="shopPhoneNumberEdit" className={labelClass}>Shop Phone</label>
-                    {isEditing ? (
-                         <div className={iconInputWrapperClass}>
-                            <div className={iconClass}><FaPhone size={14}/></div>
-                            <input id="shopPhoneNumberEdit" type="tel" name="shopPhoneNumber" placeholder="Enter phone (optional)" value={editableBillData.shopPhoneNumber} onChange={handleChange} className={`${inputClass} pl-10`} disabled={isLoading}/>
-                        </div>
-                    ) : (
-                        <p className={`${viewTextClass} ${!editableBillData.shopPhoneNumber ? 'italic text-gray-500' : ''}`}>
-                           {editableBillData.shopPhoneNumber || '(Not Provided)'}
-                        </p>
-                    )}
+                    {isEditing ? ( <div className={iconInputWrapperClass}> <div className={iconClass}><FaPhone size={14}/></div> <input id="shopPhoneNumberEdit" type="tel" name="shopPhoneNumber" placeholder="Enter phone (optional)" value={editableBillData.shopPhoneNumber} onChange={handleChange} className={`${inputClass} pl-10`} disabled={isLoading}/> </div> )
+                     : ( <p className={`${viewTextClass} ${!editableBillData.shopPhoneNumber ? 'italic text-gray-500' : ''}`}> {editableBillData.shopPhoneNumber || '(Not Provided)'} </p> )}
                 </div>
-                {/* --- Shop Address --- */}
+                {/* Shop Address & Locate Button */}
                 <div>
                      <label htmlFor="shopAddressEdit" className={labelClass}>Shop Address</label>
-                     {isEditing ? (
-                         <div className={iconInputWrapperClass}>
-                             <div className={iconClass}><FaMapMarkerAlt size={15}/></div>
-                             <input id="shopAddressEdit" type="text" name="shopAddress" placeholder="Enter address (optional)" value={editableBillData.shopAddress} onChange={handleChange} className={`${inputClass} pl-10`} disabled={isLoading}/>
-                         </div>
-                     ) : (
-                        // View Mode: Address Text + Map Button
-                        <div>
-                            <p className={`${viewTextClass} ${!editableBillData.shopAddress ? 'italic text-gray-500' : ''}`}>
-                                {editableBillData.shopAddress || '(Not Provided)'}
-                            </p>
-                            {/* Locate on Map Button */}
-                            {editableBillData.shopAddress && !isEditing && (
-                                <button
-                                    type="button"
-                                    onClick={handleLocateMap}
-                                    className="mt-2 text-sm text-orange-600 hover:text-orange-700 font-medium inline-flex items-center hover:underline disabled:opacity-50"
-                                    disabled={isLoading}
-                                    title={`Locate "${editableBillData.shopAddress}" on Google Maps`}
-                                >
-                                    <FaMapMarkerAlt className="mr-1.5 h-4 w-4" />
-                                    Locate on Map
-                                </button>
-                            )}
-                        </div>
-                     )}
+                     {isEditing ? ( <div className={iconInputWrapperClass}> <div className={iconClass}><FaMapMarkerAlt size={15}/></div> <input id="shopAddressEdit" type="text" name="shopAddress" placeholder="Enter address (optional)" value={editableBillData.shopAddress} onChange={handleChange} className={`${inputClass} pl-10`} disabled={isLoading}/> </div> )
+                     : ( <div> <p className={`${viewTextClass} ${!editableBillData.shopAddress ? 'italic text-gray-500' : ''}`}> {editableBillData.shopAddress || '(Not Provided)'} </p> {editableBillData.shopAddress && ( <button type="button" onClick={handleLocateMap} className="mt-2 text-sm text-orange-600 hover:text-orange-700 font-medium inline-flex items-center hover:underline disabled:opacity-50" disabled={isLoading} title={`Locate address on Google Maps`} > <FaMapMarkerAlt className="mr-1.5 h-4 w-4" /> Locate on Map </button> )} </div> )}
                 </div>
-                {/* --- Purchase Date --- */}
+                {/* Purchase Date */}
                 <div> <label htmlFor="purchaseDateEdit" className={labelClass}>Purchase Date *</label> {isEditing ? ( <input id="purchaseDateEdit" name="purchaseDate" type="date" value={editableBillData.purchaseDate} onChange={handleChange} className={`${inputClass} text-gray-700`} required disabled={isLoading}/> ) : ( <p className={viewTextClass}>{editableBillData.purchaseDate ? new Date(editableBillData.purchaseDate + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'N/A'}</p> )} </div>
               </div>
             </div>
+            {/* --- End Main Content Grid --- */}
 
             {/* Items Section */}
             <div className="space-y-2.5">
@@ -357,31 +420,33 @@ const BillDetailModal = ({ bill, isOpen, onClose, onUpdate, onDelete }) => {
                  </div>
                )}
             </div>
-            {/* Hidden submit allows Enter key submission */}
+            {/* Hidden submit allows Enter key submission when editing */}
             {isEditing && <button type="submit" className="hidden"></button>}
           </form>
         </div> {/* End Modal Body */}
 
         {/* Modal Footer */}
-        <div className="flex flex-col sm:flex-row justify-between items-center px-6 py-4 border-t border-gray-200 bg-white space-y-3 sm:space-y-0 sm:space-x-3 flex-shrink-0">
-          {/* Delete Button (Show only in View mode) */}
-          {!isEditing && ( <button onClick={handleDelete} disabled={isLoading} className={`${baseButtonClass} bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white focus:ring-red-500 shadow-md hover:shadow-lg`}> <FaTrash className="mr-2 h-4 w-4" /> Delete Bill </button> )}
-          {!isEditing && <div className="flex-grow"></div>} {/* Spacer */}
-
-          {/* Edit/Save/Cancel Buttons */}
-          <div className="flex space-x-4">
-            {isEditing ? (
-              <>
-                <button type="button" onClick={handleEditToggle} disabled={isLoading} className={`${baseButtonClass} bg-gray-500 hover:bg-gray-600 text-white focus:ring-gray-400 shadow-md hover:shadow-lg`}> <FaUndo className="mr-2 h-4 w-4" /> Cancel </button>
-                <button type="button" onClick={handleSubmit} disabled={isLoading || !isDirty} className={`${baseButtonClass} ${isDirty && !isLoading ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white focus:ring-green-500 shadow-md hover:shadow-lg cursor-pointer' : 'bg-gray-300 text-gray-500 focus:ring-gray-300 cursor-not-allowed'}`}>
-                     {isLoading ? <FaSpinner className="animate-spin mr-2 h-4 w-4" /> : <FaSave className="mr-2 h-4 w-4" />}
-                     {isLoading ? 'Saving...' : 'Save Changes'}
-                 </button>
-              </>
-            ) : (
-               <button onClick={handleEditToggle} disabled={isLoading} className={`${baseButtonClass} bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white focus:ring-orange-500 shadow-md hover:shadow-lg`}> <FaEdit className="mr-2 h-4 w-4" /> Edit Bill </button>
+         <div className="flex flex-wrap justify-between items-center px-6 py-4 border-t border-gray-200 bg-white space-y-3 sm:space-y-0 sm:space-x-3 flex-shrink-0">
+           {/* Left Side Buttons (View Mode) */}
+           {!isEditing && (
+             <div className="flex flex-wrap gap-3"> {/* Use gap for spacing */}
+                 <button onClick={handleDelete} disabled={isLoading} className={`${baseButtonClass} bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white focus:ring-red-500 shadow-md hover:shadow-lg`}> <FaTrash className="mr-2 h-4 w-4" /> Delete </button>
+                 <button onClick={handleClaimWarrantyClick} disabled={isLoading} className={`${baseButtonClass} bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white focus:ring-blue-500 shadow-md hover:shadow-lg`}> <FaShieldAlt className="mr-2 h-4 w-4" /> Claim Warranty </button>
+             </div>
             )}
-          </div>
+            <div className="flex-grow sm:min-w-[20px]"></div> {/* Flexible Spacer */}
+
+            {/* Right Side Buttons (Edit/Save/Cancel) */}
+            <div className="flex space-x-4 flex-shrink-0">
+                 {isEditing ? (
+                   <>
+                     <button type="button" onClick={handleEditToggle} disabled={isLoading} className={`${baseButtonClass} bg-gray-500 hover:bg-gray-600 text-white focus:ring-gray-400 shadow-md hover:shadow-lg`}> <FaUndo className="mr-2 h-4 w-4" /> Cancel </button>
+                     <button type="button" onClick={handleSubmit} disabled={isLoading || !isDirty} className={`${baseButtonClass} ${isDirty && !isLoading ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white focus:ring-green-500 shadow-md hover:shadow-lg cursor-pointer' : 'bg-gray-300 text-gray-500 focus:ring-gray-300 cursor-not-allowed'}`}> {isLoading ? <FaSpinner className="animate-spin mr-2 h-4 w-4" /> : <FaSave className="mr-2 h-4 w-4" />} {isLoading ? 'Saving...' : 'Save Changes'} </button>
+                   </>
+                 ) : (
+                    <button onClick={handleEditToggle} disabled={isLoading} className={`${baseButtonClass} bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white focus:ring-orange-500 shadow-md hover:shadow-lg`}> <FaEdit className="mr-2 h-4 w-4" /> Edit Bill </button>
+                 )}
+            </div>
         </div> {/* End Modal Footer */}
       </div> {/* End Modal Content Box */}
 
