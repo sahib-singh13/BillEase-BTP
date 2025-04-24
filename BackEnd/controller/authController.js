@@ -165,7 +165,7 @@ exports.googleAuth = async (req, res) => {
         // 1. Verify the Google ID token
         const ticket = await googleClient.verifyIdToken({
             idToken: credential,
-            audience: process.env.GOOGLE_CLIENT_ID, // Must match the Client ID used by the frontend
+            audience: process.env.GOOGLE_CLIENT_ID, 
         });
         const payload = ticket.getPayload();
 

@@ -13,7 +13,7 @@ if (!GOOGLE_MAPS_API_KEY) {
 }
 const mapLibraries = ['places']; // Specify Places API library
 const defaultCenter = { lat: 20.5937, lng: 78.9629 }; // Default map center (India)
-const defaultZoom = 10;
+const defaultZoom = 2;
 console.log("Google Maps API Key:", process.env.REACT_APP_GOOGLE_MAPS_API_KEY);
 
 const WarrantySubmitPage = () => {

@@ -14,7 +14,7 @@ const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
 // --- Select the Model ---
 // Use the specific model ID provided by the user
-const modelName = "gemini-2.0-flash"; // <--- USE THE REQUESTED MODEL ID
+const modelName = "gemini-2.0-flash"; 
 let model;
 if (genAI) {
     try {
@@ -42,7 +42,7 @@ exports.handleChatQuery = async (req, res) => {
     }
 
     // --- Construct the Prompt ---
-    const prompt = `You are a helpful assistant for BillEase, a bill management application. A user asked: "${message}". Please answer concisely and relevantly to bill management if possible, otherwise answer generally.`;
+    const prompt = `You are a helpful assistant for BillEase, a bill management application. A user asked: "${message}". Please answer concisely and relevantly to bill management if possible, otherwise answer generally. Answer in only one small line`;
     console.log(`Sending prompt to ${modelName}:`, prompt);
 
     try {
